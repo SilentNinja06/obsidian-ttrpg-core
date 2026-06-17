@@ -43,6 +43,17 @@ export class DashboardView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Load campaigns fresh each time the view opens so timing doesn't matter
+    await this.campaignManager.loadAll(this.campaignsFolder);
+    const activeId = this.campaignManager.getActiveId();
+    if (!activeId) {
+      // Try to set from the plugin settings directly
+      const plugin = (this.app as any).plugins?.plugins?.['ttrpg-core'];
+      if (plugin?.settings?.activeCampaign) {
+        await this.campaignManager.loadAll(this.campaignsFolder);
+        this.campaignManager.setActive(plugin.settings.activeCampaign);
+      }
+    }
     await this.render();
   }
 
@@ -56,20 +67,30 @@ export class DashboardView extends ItemView {
 
     if (!campaign || !campaignId) {
       container.createEl("p", {
-        text: "No active campaign. Set one in Settings → TTRPG Campaign Manager → Active campaign.",
+        text: "No active campaign.",
         cls: "ttrpg-empty",
       });
-      // Show campaign list if any are loaded
       const all = this.campaignManager.getAll();
       if (all.size > 0) {
         container.createEl("p", { text: "Available campaigns:", cls: "ttrpg-muted" });
         for (const [id, cfg] of all.entries()) {
           const btn = container.createEl("button", { text: `Load: ${cfg.name}` });
-          btn.onclick = () => {
+          btn.onclick = async () => {
             this.campaignManager.setActive(id);
-            this.render();
+            // Persist to settings
+            const plugin = (this.app as any).plugins?.plugins?.['ttrpg-core'];
+            if (plugin) {
+              plugin.settings.activeCampaign = id;
+              await plugin.saveSettings();
+            }
+            await this.render();
           };
         }
+      } else {
+        container.createEl("p", {
+          text: "Set Active campaign in Settings → TTRPG Campaign Manager.",
+          cls: "ttrpg-muted",
+        });
       }
       return;
     }
