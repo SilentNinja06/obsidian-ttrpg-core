@@ -1,0 +1,10 @@
+{
+  "id": "ttrpg-core",
+  "name": "TTRPG Campaign Manager",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Manage TTRPG campaigns — lore, characters, sessions, combat, and inventory — with system pack support for D&D, WH40k, and custom systems.",
+  "author": "SilentNinja06",
+  "authorUrl": "https://github.com/SilentNinja06",
+  "isDesktopOnly": false
+}
