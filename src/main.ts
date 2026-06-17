@@ -11,17 +11,13 @@ import {
 import { SystemLoader } from "./engine/SystemLoader";
 import { CampaignManager } from "./engine/CampaignManager";
 import { TemplateEngine } from "./engine/TemplateEngine";
+import { CombatStore } from "./engine/CombatStore";
 import { NoteCreationModal } from "./modals/NoteCreationModal";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
 import { CombatView, VIEW_TYPE_COMBAT } from "./views/CombatView";
-import {
-  CharacterView,
-  VIEW_TYPE_CHARACTER,
-  SessionNoteView,
-  VIEW_TYPE_SESSION,
-  LoreView,
-  VIEW_TYPE_LORE,
-} from "./views/CharacterView";
+import { CharacterView, VIEW_TYPE_CHARACTER } from "./views/CharacterView";
+import { SessionNoteView, VIEW_TYPE_SESSION } from "./views/SessionNoteView";
+import { LoreView, VIEW_TYPE_LORE } from "./views/LoreView";
 import { requireDataview } from "./utils/dataview";
 import { DEFAULT_SETTINGS, TTRPGSettings } from "./types";
 
@@ -30,6 +26,7 @@ export default class TTRPGPlugin extends Plugin {
   systemLoader!: SystemLoader;
   campaignManager!: CampaignManager;
   templateEngine!: TemplateEngine;
+  combatStore!: CombatStore;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -45,6 +42,7 @@ export default class TTRPGPlugin extends Plugin {
     this.systemLoader = new SystemLoader(this.app);
     this.campaignManager = new CampaignManager(this.app);
     this.templateEngine = new TemplateEngine(this.app);
+    this.combatStore = new CombatStore(this.app);
 
     this.app.workspace.onLayoutReady(async () => {
       await this.systemLoader.loadAll(this.settings.systemsFolder);
@@ -73,7 +71,13 @@ export default class TTRPGPlugin extends Plugin {
         NoteCreationModal
       )
     );
-    this.registerView(VIEW_TYPE_COMBAT, (leaf) => new CombatView(leaf));
+    this.registerView(VIEW_TYPE_COMBAT, (leaf) => new CombatView(
+      leaf,
+      this.combatStore,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder
+    ));
     this.registerView(VIEW_TYPE_CHARACTER, (leaf) => new CharacterView(leaf, this.systemLoader));
     this.registerView(VIEW_TYPE_SESSION, (leaf) => new SessionNoteView(leaf));
     this.registerView(VIEW_TYPE_LORE, (leaf) => new LoreView(leaf));
@@ -93,7 +97,8 @@ export default class TTRPGPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-open", (file) => {
         if (!file) return;
-        this.maybeOpenTTRPGView(file);
+        // Small delay so the markdown leaf is fully settled before we swap it
+        window.setTimeout(() => this.maybeOpenTTRPGView(file), 30);
       })
     );
 
@@ -126,27 +131,81 @@ export default class TTRPGPlugin extends Plugin {
     workspace.revealLeaf(leaf);
   }
 
-  private maybeOpenTTRPGView(file: TFile): void {
+  private suppressNextOpen = false;
+
+  private isSwapping = false;
+
+  private async maybeOpenTTRPGView(file: TFile): Promise<void> {
+    if (this.suppressNextOpen) {
+      this.suppressNextOpen = false;
+      return;
+    }
+    if (this.isSwapping) return;
+
+    // Read frontmatter directly — the metadata cache may not be populated yet
+    // for freshly created files.
+    let type: string | undefined;
     const cache = this.app.metadataCache.getFileCache(file);
-    const type = cache?.frontmatter?.["ttrpg-type"];
+    type = cache?.frontmatter?.["ttrpg-type"] as string | undefined;
+    if (!type) {
+      try {
+        const raw = await this.app.vault.read(file);
+        const m = raw.match(/^---\n([\s\S]*?)\n---/);
+        if (m) {
+          const tm = m[1].match(/ttrpg-type:\s*(\S+)/);
+          if (tm) type = tm[1].trim();
+        }
+      } catch (e) {
+        return;
+      }
+    }
     if (!type) return;
+
     const map: Record<string, string> = {
       character: VIEW_TYPE_CHARACTER,
       session: VIEW_TYPE_SESSION,
       location: VIEW_TYPE_LORE,
       faction: VIEW_TYPE_LORE,
       history: VIEW_TYPE_LORE,
+      item: VIEW_TYPE_LORE,
     };
     const viewType = map[type];
     if (!viewType) return;
-    const existing = this.app.workspace.getLeavesOfType(viewType);
-    if (existing.length > 0) {
-      const view = existing[0].view as any;
+
+    // Find the leaf currently showing this markdown file
+    let targetLeaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const vs = leaf.getViewState();
+      if (vs.type === "markdown" && (vs.state as any)?.file === file.path) {
+        targetLeaf = leaf;
+      }
+    });
+
+    if (!targetLeaf) {
+      targetLeaf = this.app.workspace.getMostRecentLeaf();
+    }
+    if (!targetLeaf) return;
+
+    this.isSwapping = true;
+    try {
+      await (targetLeaf as WorkspaceLeaf).setViewState({
+        type: viewType,
+        active: true,
+        state: { file: file.path },
+      });
+      const view = (targetLeaf as WorkspaceLeaf).view as any;
       if (typeof view.setFile === "function") {
         view.setFile(file);
-        this.app.workspace.revealLeaf(existing[0]);
       }
+    } finally {
+      window.setTimeout(() => { this.isSwapping = false; }, 50);
     }
+  }
+
+  /** Called by the Edit source buttons to open raw markdown without re-interception */
+  openSource(file: TFile): void {
+    this.suppressNextOpen = true;
+    this.app.workspace.getLeaf("tab").openFile(file);
   }
 
   openNewNoteModal(type?: string): void {

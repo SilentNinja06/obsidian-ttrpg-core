@@ -1,5 +1,11 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { Combatant } from "../types";
+import { InputModal, promptText } from "../modals/InputModal";
+import type { CombatStore } from "../engine/CombatStore";
+import type { CampaignManager } from "../engine/CampaignManager";
+import type { SystemLoader } from "../engine/SystemLoader";
+import { TFile, stringifyYaml } from "obsidian";
+import { writeFrontmatterKey, readNote, writeSection } from "../utils/fileIO";
 
 export const VIEW_TYPE_COMBAT = "ttrpg-combat";
 
@@ -10,12 +16,125 @@ export class CombatView extends ItemView {
   private pendingDice: { value: number; label: string } | null = null;
   private log: string[] = ["Combat started — round 1"];
 
+  private store: CombatStore;
+  private campaignManager: CampaignManager;
+  private systemLoader: SystemLoader;
+  private campaignsFolder: string;
+  private loaded = false;
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    store: CombatStore,
+    campaignManager: CampaignManager,
+    systemLoader: SystemLoader,
+    campaignsFolder: string
+  ) {
+    super(leaf);
+    this.store = store;
+    this.campaignManager = campaignManager;
+    this.systemLoader = systemLoader;
+    this.campaignsFolder = campaignsFolder;
+  }
+
   getViewType(): string { return VIEW_TYPE_COMBAT; }
   getDisplayText(): string { return "Combat Tracker"; }
   getIcon(): string { return "swords"; }
 
-  async onOpen(): Promise<void> {
+  private campaignFolder(): string {
+    return `${this.campaignsFolder}/${this.campaignManager.getActiveId()}`;
+  }
+
+  private hpKeys(): { current: string; max: string } | undefined {
+    const campaign = this.campaignManager.getActive();
+    if (!campaign) return undefined;
+    return this.systemLoader.get(campaign.system)?.entities?.character?.hp;
+  }
+
+  private snapshot() {
+    return {
+      round: this.round,
+      activeIdx: this.activeIdx,
+      combatants: this.combatants,
+      log: this.log,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  private async autosave(): Promise<void> {
+    const id = this.campaignManager.getActiveId();
+    if (!id) return;
+    await this.store.saveCurrent(this.campaignFolder(), this.snapshot());
+  }
+
+  private async saveEncounter(): Promise<void> {
+    const name = await promptText(this.app, "Save encounter", "Encounter name:", "");
+    if (!name) return;
+    await this.store.saveEncounter(this.campaignFolder(), name, this.snapshot());
+    this.addLog(`Encounter saved as "${name}"`);
+  }
+
+  private async loadEncounterDialog(): Promise<void> {
+    const names = await this.store.listEncounters(this.campaignFolder());
+    if (names.length === 0) {
+      this.addLog("No saved encounters found");
+      return;
+    }
+    new InputModal(
+      this.app,
+      "Load encounter",
+      [{ key: "name", label: "Encounter", type: "dropdown", options: names, default: names[0] }],
+      async (vals) => {
+        if (!vals) return;
+        const state = await this.store.loadEncounter(this.campaignFolder(), String(vals.name));
+        if (state) {
+          this.round = state.round;
+          this.activeIdx = state.activeIdx;
+          this.combatants = state.combatants;
+          this.log = state.log ?? [];
+          this.render();
+          this.autosave();
+        }
+      }
+    ).open();
+  }
+
+  private async clearCombat(): Promise<void> {
+    const pcs = await this.store.loadPartyPCs(this.campaignFolder(), this.hpKeys());
+    this.combatants = pcs;
+    this.round = 1;
+    this.activeIdx = 0;
+    this.log = pcs.length > 0
+      ? [`Cleared — reloaded ${pcs.length} party member${pcs.length === 1 ? "" : "s"}`]
+      : ["Combat cleared"];
     this.render();
+    this.autosave();
+  }
+
+  async onOpen(): Promise<void> {
+    await this.loadInitial();
+    this.render();
+  }
+
+  private async loadInitial(): Promise<void> {
+    if (this.loaded) return;
+    this.loaded = true;
+    const id = this.campaignManager.getActiveId();
+    if (!id) return;
+
+    const saved = await this.store.loadCurrent(this.campaignFolder());
+    if (saved && saved.combatants && saved.combatants.length > 0) {
+      this.round = saved.round;
+      this.activeIdx = saved.activeIdx;
+      this.combatants = saved.combatants;
+      this.log = saved.log ?? ["Combat resumed"];
+    } else {
+      // No saved state — auto-load party PCs
+      const pcs = await this.store.loadPartyPCs(this.campaignFolder(), this.hpKeys());
+      this.combatants = pcs;
+      if (pcs.length > 0) {
+        this.log = [`Loaded ${pcs.length} party member${pcs.length === 1 ? "" : "s"} — set initiative to begin`];
+      }
+    }
   }
 
   private sorted(): Combatant[] {
@@ -56,6 +175,15 @@ export class CombatView extends ItemView {
 
     const addBtn = toolbar.createEl("button", { text: "+ Add" });
     addBtn.onclick = () => this.addCombatant();
+
+    const saveBtn = toolbar.createEl("button", { text: "Save encounter" });
+    saveBtn.onclick = () => this.saveEncounter();
+
+    const loadBtn = toolbar.createEl("button", { text: "Load" });
+    loadBtn.onclick = () => this.loadEncounterDialog();
+
+    const clearBtn = toolbar.createEl("button", { text: "Clear" });
+    clearBtn.onclick = () => this.clearCombat();
 
     const popoutBtn = toolbar.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => this.app.workspace.moveLeafToPopout(this.leaf);
@@ -194,13 +322,51 @@ export class CombatView extends ItemView {
     if (!c) return;
     const val = parseInt(input.value) || 0;
     if (!val) { input.focus(); return; }
+    input.value = "";
+
+    const verb = sign === -1 ? "Damage" : "Healing";
+    new InputModal(
+      this.app,
+      `${verb}: ${c.name} (${val})`,
+      [{ key: "note", label: "How? (e.g. goblin crit, axe)", type: "text", default: "" }],
+      async (vals) => {
+        if (!vals) return; // cancelled — no change applied
+        const note = String(vals.note || "").trim();
+        await this.commitHp(c, sign, val, note);
+      }
+    ).open();
+  }
+
+  private async commitHp(c: Combatant, sign: number, val: number, note: string): Promise<void> {
     c.hp = Math.max(0, Math.min(c.hpMax, c.hp + sign * val));
     if (c.hp === 0) c.dead = true;
     if (c.hp > 0 && c.dead && sign > 0) c.dead = false;
+
     const word = sign === -1 ? `took ${val} damage` : `healed ${val} HP`;
-    this.addLog(`<strong>${c.name}</strong> ${word} → ${c.hp}/${c.hpMax}`);
-    input.value = "";
+    const noteSuffix = note ? ` — ${note}` : "";
+    this.addLog(`<strong>${c.name}</strong> ${word}${noteSuffix} → ${c.hp}/${c.hpMax}`);
     this.renderCombatants();
+    this.autosave();
+
+    // Option A: write HP back to the character sheet, and log the instance there
+    if (c.filePath) {
+      const file = this.app.vault.getFileByPath(c.filePath);
+      if (file instanceof TFile) {
+        const hpKeys = this.hpKeys();
+        if (hpKeys) {
+          await writeFrontmatterKey(this.app, file, hpKeys.current, c.hp);
+        }
+        // Append to the sheet's Combat log section
+        const stamp = new Date().toLocaleString();
+        const line = `- ${stamp} — ${word}${noteSuffix} → ${c.hp}/${c.hpMax}`;
+        const { fm, body } = await readNote(this.app, file);
+        const existing = body.match(/## Combat log\n([\s\S]*?)(?=\n##|$)/);
+        const prior = existing ? existing[1].trim() : "";
+        const newSection = prior ? `${prior}\n${line}` : line;
+        const newBody = writeSection(body, "Combat log", newSection);
+        await this.app.vault.modify(file, `---\n${stringifyYaml(fm)}---\n${newBody}`);
+      }
+    }
   }
 
   private rollDice(sides: number): void {
@@ -221,50 +387,76 @@ export class CombatView extends ItemView {
 
   private nextTurn(): void {
     const sorted = this.sorted();
+    if (sorted.length === 0) return;
     this.activeIdx = (this.activeIdx + 1) % sorted.length;
     this.addLog(`Turn: <strong>${sorted[this.activeIdx].name}</strong>`);
     this.renderCombatants();
     const badge = this.containerEl.querySelector(".ttrpg-round-badge");
     if (badge) badge.textContent = `Round ${this.round}`;
+    this.autosave();
   }
 
   private nextRound(): void {
+    const sorted = this.sorted();
+    if (sorted.length === 0) return;
     this.round++;
     this.activeIdx = 0;
-    const sorted = this.sorted();
     this.addLog(`— Round <strong>${this.round}</strong> begins — ${sorted[0]?.name ?? ""} goes first`);
     this.renderCombatants();
     const badge = this.containerEl.querySelector(".ttrpg-round-badge");
     if (badge) badge.textContent = `Round ${this.round}`;
+    this.autosave();
   }
 
   private addCombatant(): void {
-    const name = prompt("Name:");
-    if (!name) return;
-    const isPC = confirm("Is this a PC?");
-    const init = parseInt(prompt("Initiative:") ?? "0") || 0;
-    const hp = parseInt(prompt("Max HP:") ?? "10") || 10;
-    this.combatants.push({
-      id: Date.now(),
-      name,
-      type: isPC ? "pc" : "npc",
-      init,
-      hp,
-      hpMax: hp,
-      conditions: [],
-      dead: false,
-    });
-    this.addLog(`<strong>${name}</strong> joined (init ${init})`);
-    this.renderCombatants();
+    new InputModal(
+      this.app,
+      "Add combatant",
+      [
+        { key: "name", label: "Name", type: "text" },
+        { key: "isPC", label: "Player character?", type: "toggle", default: false },
+        { key: "init", label: "Initiative", type: "number", default: 0 },
+        { key: "hp", label: "Max HP", type: "number", default: 10 },
+      ],
+      (vals) => {
+        if (!vals || !vals.name) return;
+        const hp = (vals.hp as number) || 10;
+        this.combatants.push({
+          id: Date.now(),
+          name: String(vals.name),
+          type: vals.isPC ? "pc" : "npc",
+          init: (vals.init as number) || 0,
+          hp,
+          hpMax: hp,
+          conditions: [],
+          dead: false,
+        });
+        this.addLog(`<strong>${vals.name}</strong> joined (init ${vals.init || 0})`);
+        this.renderCombatants();
+        this.autosave();
+      }
+    ).open();
   }
 
   private openConditionMenu(c: Combatant): void {
-    const input = prompt(
-      `Conditions for ${c.name}\nAvailable: poisoned, stunned, prone, blinded, charmed\nCurrent: ${c.conditions.join(", ") || "none"}\n\nEnter comma-separated (blank = clear):`
-    );
-    if (input === null) return;
-    c.conditions = input.split(",").map((s) => s.trim()).filter(Boolean);
-    this.addLog(`<strong>${c.name}</strong> conditions: ${c.conditions.join(", ") || "none"}`);
-    this.renderCombatants();
+    new InputModal(
+      this.app,
+      `Conditions for ${c.name}`,
+      [
+        {
+          key: "conditions",
+          label: "Comma-separated (blank = clear)",
+          type: "text",
+          default: c.conditions.join(", "),
+        },
+      ],
+      (vals) => {
+        if (!vals) return;
+        c.conditions = String(vals.conditions).split(",").map((s) => s.trim()).filter(Boolean);
+        this.addLog(`<strong>${c.name}</strong> conditions: ${c.conditions.join(", ") || "none"}`);
+        this.renderCombatants();
+        this.autosave();
+      }
+    ).open();
   }
 }

@@ -77,6 +77,7 @@ export interface Combatant {
   hpMax: number;
   conditions: string[];
   dead: boolean;
+  filePath?: string; // set for PCs loaded from character sheets, enables HP write-back
 }
 
 // ─── Plugin settings ─────────────────────────────────────────────────────────

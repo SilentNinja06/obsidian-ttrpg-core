@@ -1,13 +1,13 @@
-import { ItemView, WorkspaceLeaf, TFile, parseYaml } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import type { SystemLoader } from "../engine/SystemLoader";
-
-// ─── Character View ───────────────────────────────────────────────────────────
+import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection } from "../utils/fileIO";
+import { InputModal } from "../modals/InputModal";
 
 export const VIEW_TYPE_CHARACTER = "ttrpg-character";
 
 export class CharacterView extends ItemView {
   private systemLoader: SystemLoader;
-  private file: TFile | null = null;
+  file: TFile | null = null;
 
   constructor(leaf: WorkspaceLeaf, systemLoader: SystemLoader) {
     super(leaf);
@@ -23,311 +23,306 @@ export class CharacterView extends ItemView {
     this.render();
   }
 
+  async setState(state: any, result: any): Promise<void> {
+    if (state?.file) {
+      const f = this.app.vault.getFileByPath(state.file);
+      if (f instanceof TFile) {
+        this.file = f;
+        await this.render();
+      }
+    }
+    return super.setState(state, result);
+  }
+
+  getState(): any {
+    const state = super.getState();
+    if (this.file) state.file = this.file.path;
+    return state;
+  }
+
   async render(): Promise<void> {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     if (!this.file) return;
 
-    const content = await this.app.vault.read(this.file);
-    const fm = this.parseFrontmatter(content);
+    const { fm, body } = await readNote(this.app, this.file);
     const system = this.systemLoader.get(fm.system as string);
     const stats = system?.entities?.character?.stats ?? [];
     const hpKey = system?.entities?.character?.hp;
+    const schemaFields = system?.entities?.character?.fields ?? [];
 
-    container.addClass("ttrpg-character-view");
+    container.addClass("ttrpg-view");
+    container.style.padding = "1rem";
+    container.style.overflowY = "auto";
 
-    // Header
-    const header = container.createDiv("ttrpg-char-header");
-    const initials = (this.file.basename ?? "?").slice(0, 2).toUpperCase();
-    const avatar = header.createDiv("ttrpg-char-avatar");
-    avatar.textContent = initials;
+    // ── Source button ────────────────────────────────────────────────────────
+    const topBar = container.createDiv();
+    topBar.style.cssText = "display:flex;justify-content:flex-end;gap:6px;margin-bottom:0.75rem";
+    const sourceBtn = topBar.createEl("button", { text: "Edit source" });
+    sourceBtn.onclick = () => {
+      if (this.file) this.app.workspace.getLeaf("tab").openFile(this.file);
+    };
+    const popBtn = topBar.createEl("button", { text: "⤢ Pop out" });
+    popBtn.onclick = () => this.app.workspace.moveLeafToPopout(this.leaf);
 
-    const meta = header.createDiv("ttrpg-char-meta");
-    meta.createEl("h2", { text: this.file.basename });
+    // ── Header ───────────────────────────────────────────────────────────────
+    const header = container.createDiv();
+    header.style.cssText = "display:flex;gap:14px;margin-bottom:1rem;padding-bottom:1rem;border-bottom:0.5px solid var(--color-border-tertiary)";
+    const avatar = header.createDiv();
+    avatar.style.cssText = "width:48px;height:48px;border-radius:50%;background:var(--color-background-info);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:500;color:var(--color-text-info);flex-shrink:0;border:0.5px solid var(--color-border-tertiary)";
+    avatar.textContent = (this.file.basename ?? "?").slice(0, 2).toUpperCase();
+
+    const meta = header.createDiv();
+    meta.style.flex = "1";
+    meta.createEl("h2", { text: this.file.basename }).style.cssText = "margin:0 0 3px;font-size:18px;font-weight:500";
     meta.createEl("p", {
-      text: [fm.class, fm.level ? `Level ${fm.level}` : "", fm.race, fm.alignment]
-        .filter(Boolean).join(" · "),
-      cls: "ttrpg-muted",
-    });
+      text: [fm.class, fm.level ? `Level ${fm.level}` : "", fm.race, fm.alignment].filter(Boolean).join(" · "),
+    }).style.cssText = "margin:0 0 6px;font-size:13px;color:var(--color-text-secondary)";
 
-    const tagsRow = meta.createDiv("ttrpg-tags-row");
+    const tagsRow = meta.createDiv();
+    tagsRow.style.cssText = "display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px";
     for (const tag of (fm.tags as string[] ?? [])) {
-      tagsRow.createSpan({ text: tag, cls: "ttrpg-tag" });
+      this.pill(tagsRow, tag, "#E1F5EE", "#085041");
     }
     for (const cond of (fm.conditions as string[] ?? [])) {
-      tagsRow.createSpan({ text: cond, cls: "ttrpg-tag ttrpg-tag-condition" });
+      this.pill(tagsRow, cond, "#FAEEDA", "#633806");
     }
 
     // HP strip
     if (hpKey) {
       const hpCur = (fm[hpKey.current] as number) ?? 0;
       const hpMax = (fm[hpKey.max] as number) ?? 1;
-      const pct = Math.round((hpCur / hpMax) * 100);
-      const hpStrip = meta.createDiv("ttrpg-hp-strip");
-      const barWrap = hpStrip.createDiv("ttrpg-hp-bar-wrap");
-      const bar = barWrap.createDiv("ttrpg-hp-bar");
-      bar.style.width = `${pct}%`;
-      bar.style.background = pct > 50 ? "#1D9E75" : pct > 25 ? "#BA7517" : "#E24B4A";
-      hpStrip.createSpan({ text: `${hpCur} / ${hpMax} HP`, cls: "ttrpg-muted" });
+      const pct = Math.max(0, Math.round((hpCur / hpMax) * 100));
+      const strip = meta.createDiv();
+      strip.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:4px";
+      const barWrap = strip.createDiv();
+      barWrap.style.cssText = "flex:1;height:7px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden;border:0.5px solid var(--color-border-tertiary)";
+      const bar = barWrap.createDiv();
+      bar.style.cssText = `height:100%;border-radius:4px;transition:width 0.3s;width:${pct}%;background:${pct > 50 ? "#1D9E75" : pct > 25 ? "#BA7517" : "#E24B4A"}`;
+      const hpLabel = strip.createSpan({ text: `${hpCur} / ${hpMax} HP` });
+      hpLabel.style.cssText = "font-size:12px;color:var(--color-text-secondary);white-space:nowrap;cursor:pointer";
+      hpLabel.title = "Click to set current / max HP";
+      hpLabel.onclick = () => {
+        new InputModal(
+          this.app,
+          "Set HP",
+          [
+            { key: "current", label: "Current HP", type: "number", default: hpCur },
+            { key: "max", label: "Max HP", type: "number", default: hpMax },
+          ],
+          async (vals) => {
+            if (!vals || !this.file) return;
+            const nc = (vals.current as number) || 0;
+            const nm = (vals.max as number) || 0;
+            await writeFrontmatterKeys(this.app, this.file, {
+              [hpKey.current]: nc,
+              [hpKey.max]: nm,
+            });
+            await this.render();
+          }
+        ).open();
+      };
     }
 
-    // Two columns
-    const cols = container.createDiv("ttrpg-columns");
+    // ── Two columns ──────────────────────────────────────────────────────────
+    const cols = container.createDiv();
+    cols.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start";
     const left = cols.createDiv();
     const right = cols.createDiv();
 
-    // Stat block
-    if (stats.length) {
-      this.createCollapsibleSection(left, "Stat block", (body) => {
-        const grid = body.createDiv("ttrpg-stat-grid");
-        for (const stat of stats) {
-          const box = grid.createDiv("ttrpg-stat-box");
-          const val = (fm[stat.key] as number) ?? 0;
-          const mod = Math.floor((val - 10) / 2);
-          box.createDiv({ text: String(val), cls: "ttrpg-stat-val" });
-          box.createDiv({ text: (mod >= 0 ? "+" : "") + mod, cls: "ttrpg-stat-mod" });
-          box.createDiv({ text: stat.label, cls: "ttrpg-stat-lbl" });
+    // Details (class, level, race, AC, etc. from schema)
+    if (schemaFields.length) {
+      this.section(left, "Details", (b) => {
+        const grid = b.createDiv();
+        grid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:8px";
+        for (const field of schemaFields) {
+          const isNum = field.type === "integer";
+          const cell = grid.createDiv();
+          cell.createDiv({ text: field.label }).style.cssText = "font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px";
+          const cur = fm[field.key];
+          const display = (cur === undefined || cur === null || cur === "") ? "—" : String(cur);
+          const val = cell.createDiv({ text: display });
+          val.style.cssText = "font-size:14px;color:var(--color-text-primary);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:4px 8px;cursor:pointer;min-height:24px";
+          val.title = `Click to set ${field.label}`;
+          val.onclick = () => {
+            const input = createEl("input");
+            input.type = isNum ? "number" : "text";
+            input.value = (cur === undefined || cur === null) ? "" : String(cur);
+            input.style.cssText = "width:100%;font-size:14px;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--color-border-primary);border-radius:4px;padding:3px 6px";
+            val.replaceWith(input);
+            input.focus();
+            let done = false;
+            const commit = async () => {
+              if (done) return; done = true;
+              const newVal = isNum ? (parseInt(input.value) || 0) : input.value;
+              fm[field.key] = newVal;
+              if (this.file) await writeFrontmatterKey(this.app, this.file, field.key, newVal);
+              await this.render();
+            };
+            input.onblur = commit;
+            input.onkeydown = (e) => { if (e.key === "Enter") commit(); };
+          };
         }
       });
     }
 
-    // Arc / backstory (right column)
-    this.createCollapsibleSection(right, "Backstory & arc", (body) => {
-      for (const field of (system?.arcFields ?? [
-        { key: "motivation", label: "Motivation" },
-        { key: "secret", label: "Secret" },
-        { key: "current-goal", label: "Current goal" },
-      ])) {
-        const f = body.createDiv("ttrpg-struct-field");
-        f.createDiv({ text: field.label, cls: "ttrpg-field-label" });
-        f.createDiv({ text: (fm[field.key] as string) ?? "—", cls: "ttrpg-field-val" });
-      }
-      body.createDiv({ text: "Notes", cls: "ttrpg-field-label" });
-      body.createEl("textarea", { cls: "ttrpg-notes-area", attr: { placeholder: "Session observations…" } });
-    });
+    // Stat block
+    if (stats.length) {
+      this.section(left, "Stat block", (body) => {
+        const grid = body.createDiv();
+        grid.style.cssText = "display:grid;grid-template-columns:repeat(3,1fr);gap:6px";
+        for (const stat of stats) {
+          const val = (fm[stat.key] as number) ?? 0;
+          const mod = Math.floor((val - 10) / 2);
+          const box = grid.createDiv();
+          box.style.cssText = "background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:6px 4px;text-align:center";
+          const valEl = box.createDiv({ text: String(val) });
+          valEl.style.cssText = "font-size:18px;font-weight:500;color:var(--color-text-primary)";
+          box.createDiv({ text: (mod >= 0 ? "+" : "") + mod }).style.cssText = "font-size:11px;color:var(--color-text-secondary)";
+          box.createDiv({ text: stat.label }).style.cssText = "font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.03em";
 
-    // Popout button
-    const popoutBtn = container.createEl("button", { text: "⤢ Pop out", cls: "ttrpg-popout-btn" });
-    popoutBtn.onclick = () => this.app.workspace.moveLeafToPopout(this.leaf);
-  }
-
-  private createCollapsibleSection(
-    parent: HTMLElement,
-    title: string,
-    builder: (body: HTMLElement) => void
-  ): void {
-    const section = parent.createDiv("ttrpg-section");
-    const head = section.createDiv("ttrpg-section-head");
-    head.createSpan({ text: title, cls: "ttrpg-section-title" });
-    const toggle = head.createSpan({ text: "▾", cls: "ttrpg-section-toggle open" });
-    const body = section.createDiv("ttrpg-section-body");
-    builder(body);
-    head.onclick = () => {
-      body.classList.toggle("hidden");
-      toggle.classList.toggle("open");
-    };
-  }
-
-  private parseFrontmatter(content: string): Record<string, unknown> {
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!match) return {};
-    try { return parseYaml(match[1]) ?? {}; }
-    catch { return {}; }
-  }
-}
-
-// ─── Session Note View ────────────────────────────────────────────────────────
-
-export const VIEW_TYPE_SESSION = "ttrpg-session";
-
-export class SessionNoteView extends ItemView {
-  private file: TFile | null = null;
-  private mode: "capture" | "writeup" = "capture";
-
-  getViewType(): string { return VIEW_TYPE_SESSION; }
-  getDisplayText(): string { return this.file?.basename ?? "Session"; }
-  getIcon(): string { return "book-open"; }
-
-  setFile(file: TFile): void {
-    this.file = file;
-    this.render();
-  }
-
-  async render(): Promise<void> {
-    const container = this.containerEl.children[1] as HTMLElement;
-    container.empty();
-    if (!this.file) return;
-
-    container.addClass("ttrpg-session-view");
-
-    // Mode toggle header
-    const header = container.createDiv("ttrpg-session-header");
-    header.createEl("h2", { text: this.file.basename });
-
-    const modeToggle = header.createDiv("ttrpg-mode-toggle");
-    const captureBtn = modeToggle.createEl("button", { text: "Capture", cls: "ttrpg-mode-btn" + (this.mode === "capture" ? " active" : "") });
-    const writeupBtn = modeToggle.createEl("button", { text: "Write-up", cls: "ttrpg-mode-btn" + (this.mode === "writeup" ? " active" : "") });
-
-    captureBtn.onclick = () => { this.mode = "capture"; this.render(); };
-    writeupBtn.onclick = () => { this.mode = "writeup"; this.render(); };
-
-    if (this.mode === "capture") {
-      this.renderCapture(container);
-    } else {
-      this.renderWriteup(container);
-    }
-  }
-
-  private renderCapture(container: HTMLElement): void {
-    const sections: { title: string; placeholder: string }[] = [
-      { title: "What happened", placeholder: "Quick bullet…" },
-      { title: "NPCs encountered", placeholder: "NPC name…" },
-      { title: "Loot (unassigned)", placeholder: "Item name…" },
-      { title: "Quotes & moments", placeholder: "Quote or moment…" },
-      { title: "Loose threads", placeholder: "Unresolved hook…" },
-      { title: "Decisions", placeholder: "What did the party decide?…" },
-    ];
-    const grid = container.createDiv("ttrpg-capture-grid");
-    for (const { title, placeholder } of sections) {
-      const block = grid.createDiv("ttrpg-cap-block");
-      const head = block.createDiv("ttrpg-cap-head");
-      head.createSpan({ text: title, cls: "ttrpg-cap-label" });
-      const body = block.createDiv("ttrpg-cap-body");
-      const list = body.createEl("ul", { cls: "ttrpg-bullet-list" });
-      const inputRow = body.createDiv("ttrpg-quick-input");
-      const input = inputRow.createEl("input", { attr: { placeholder } });
-      input.style.color = "var(--text-normal)";
-      const addBtn = inputRow.createEl("button", { text: "Add" });
-      addBtn.onclick = () => {
-        const val = input.value.trim();
-        if (!val) return;
-        const li = list.createEl("li", { cls: "ttrpg-bullet-item" });
-        li.createSpan({ cls: "ttrpg-bullet-dot" });
-        li.createSpan({ text: val, cls: "ttrpg-bullet-text" });
-        input.value = "";
-      };
-      input.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
-    }
-  }
-
-  private renderWriteup(container: HTMLElement): void {
-    const areas: { title: string; placeholder: string }[] = [
-      { title: "Plot summary", placeholder: "What happened this session, in prose…" },
-      { title: "Decisions & why", placeholder: "What the party decided and the reasoning behind it…" },
-      { title: "Memorable moments", placeholder: "Quotes, character beats, things worth keeping…" },
-      { title: "Loose threads", placeholder: "Unresolved hooks for next time…" },
-    ];
-    for (const { title, placeholder } of areas) {
-      const section = container.createDiv("ttrpg-section");
-      section.createEl("h3", { text: title });
-      const ta = section.createEl("textarea", { cls: "ttrpg-notes-area", attr: { placeholder } });
-      ta.style.color = "var(--text-normal)";
-    }
-  }
-}
-
-// ─── Lore View ────────────────────────────────────────────────────────────────
-
-export const VIEW_TYPE_LORE = "ttrpg-lore";
-
-export class LoreView extends ItemView {
-  private file: TFile | null = null;
-
-  getViewType(): string { return VIEW_TYPE_LORE; }
-  getDisplayText(): string { return this.file?.basename ?? "Lore"; }
-  getIcon(): string { return "map"; }
-
-  setFile(file: TFile): void {
-    this.file = file;
-    this.render();
-  }
-
-  async render(): Promise<void> {
-    const container = this.containerEl.children[1] as HTMLElement;
-    container.empty();
-    if (!this.file) return;
-
-    const content = await this.app.vault.read(this.file);
-    const fm = this.parseFrontmatter(content);
-
-    container.addClass("ttrpg-lore-view");
-
-    // Header
-    const iconMap: Record<string, string> = { location: "🏰", faction: "⚔️", history: "📜" };
-    const type = (fm["ttrpg-type"] as string) ?? "location";
-    const header = container.createDiv("ttrpg-lore-header");
-    header.createDiv({ text: iconMap[type] ?? "📄", cls: "ttrpg-lore-icon" });
-    const meta = header.createDiv("ttrpg-lore-meta");
-    meta.createEl("h2", { text: this.file.basename });
-    meta.createEl("p", { text: `${type} · ${fm.campaign ?? ""}`, cls: "ttrpg-muted" });
-    const tagsRow = meta.createDiv("ttrpg-tags-row");
-    tagsRow.createSpan({ text: type, cls: "ttrpg-tag ttrpg-tag-type" });
-    const status = (fm.status as string) ?? "active";
-    tagsRow.createSpan({ text: status, cls: `ttrpg-tag ttrpg-tag-status-${status}` });
-
-    // Two columns
-    const cols = container.createDiv("ttrpg-columns");
-    const left = cols.createDiv();
-    const right = cols.createDiv();
-
-    // Core fields (left)
-    this.createSection(left, "Details", (body) => {
-      const coreFields: Record<string, string[]> = {
-        location: ["region", "type", "controlled-by", "notable-features"],
-        faction: ["alignment", "goals", "resources", "leadership"],
-        history: ["era", "location", "parties-involved", "outcome"],
-      };
-      for (const key of (coreFields[type] ?? [])) {
-        const val = fm[key];
-        if (!val) continue;
-        const f = body.createDiv("ttrpg-struct-field");
-        f.createDiv({ text: key.replace(/-/g, " "), cls: "ttrpg-field-label" });
-        f.createDiv({ text: String(val), cls: "ttrpg-field-val" });
-      }
-      body.createDiv({ text: "Notes", cls: "ttrpg-field-label" });
-      const ta = body.createEl("textarea", { cls: "ttrpg-notes-area", attr: { placeholder: "DM notes, atmosphere, observations…" } });
-      ta.style.color = "var(--text-normal)";
-    });
-
-    // Session appearances (right)
-    this.createSection(right, "Session appearances", (body) => {
-      const appearances = (fm["session-appearances"] as string[]) ?? [];
-      if (appearances.length === 0) {
-        body.createEl("p", { text: "No sessions yet — wikilinks will auto-populate via Dataview.", cls: "ttrpg-muted" });
-      } else {
-        for (const sess of appearances) {
-          body.createSpan({ text: sess, cls: "ttrpg-session-pill" });
+          // Make stat editable on click
+          valEl.style.cursor = "pointer";
+          valEl.title = `Click to edit ${stat.label}`;
+          valEl.onclick = () => {
+            const input = createEl("input");
+            input.type = "number"; input.value = String(val);
+            input.style.cssText = "width:100%;font-size:16px;text-align:center;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--color-border-primary);border-radius:4px";
+            valEl.replaceWith(input);
+            input.focus();
+            input.onblur = async () => {
+              const newVal = parseInt(input.value) || 0;
+              fm[stat.key] = newVal;
+              if (this.file) await writeFrontmatterKey(this.app, this.file, stat.key, newVal);
+              await this.render();
+            };
+          };
         }
+      });
+    }
+
+    // Skills & abilities
+    const skillsContent = readSection(body, "Skills & abilities");
+    this.editableSection(left, "Skills & abilities", skillsContent, "Skills & abilities");
+
+    // Combat log (read-only — populated by the combat tracker)
+    const combatLogContent = readSection(body, "Combat log");
+    if (combatLogContent.trim()) {
+      this.section(left, "Combat log", (b) => {
+        const lines = combatLogContent.split("\n").filter(l => l.trim().startsWith("-"));
+        // Show newest first
+        for (const line of lines.reverse()) {
+          const entry = b.createDiv({ text: line.replace(/^-\s*/, "") });
+          entry.style.cssText = "font-size:12px;color:var(--color-text-secondary);padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary);line-height:1.4";
+        }
+        if (lines.length === 0) {
+          b.createEl("p", { text: "No combat events yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
+        }
+      });
+    }
+
+    // Backstory & arc (right)
+    const arcFields = system?.arcFields ?? [
+      { key: "motivation", label: "Motivation" },
+      { key: "secret", label: "Secret" },
+      { key: "current-goal", label: "Current goal" },
+    ];
+    this.section(right, "Backstory & arc", (b) => {
+      for (const field of arcFields) {
+        const f = b.createDiv();
+        f.style.marginBottom = "10px";
+        f.createDiv({ text: field.label }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px";
+        const val = b.createDiv({ text: (fm[field.key] as string) || "—" });
+        val.style.cssText = "font-size:13px;color:var(--color-text-primary);background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:6px 8px;border:0.5px solid var(--color-border-tertiary);cursor:pointer;min-height:28px";
+        val.title = "Click to edit";
+        val.onclick = () => {
+          const ta = createEl("textarea");
+          ta.value = (fm[field.key] as string) || "";
+          ta.style.cssText = "width:100%;font-size:13px;font-family:var(--font-sans);color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-primary);border-radius:var(--border-radius-md);padding:6px 8px;resize:vertical;min-height:60px";
+          val.replaceWith(ta);
+          ta.focus();
+          ta.onblur = async () => {
+            fm[field.key] = ta.value;
+            if (this.file) await writeFrontmatterKey(this.app, this.file, field.key, ta.value);
+            await this.render();
+          };
+        };
       }
+
+      // Freeform notes
+      const notesContent = readSection(body, "Notes");
+      b.createDiv({ text: "Notes" }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px;margin-top:6px";
+      const ta = b.createEl("textarea");
+      ta.value = notesContent;
+      ta.placeholder = "Freeform session observations…";
+      ta.style.cssText = "width:100%;min-height:80px;font-size:13px;font-family:var(--font-sans);color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:8px;resize:vertical";
+      ta.onblur = async () => {
+        if (this.file) await writeNoteSection(this.app, this.file, "Notes", ta.value);
+      };
     });
 
-    // Connections (right)
-    this.createSection(right, "Connected characters", (body) => {
-      body.createEl("p", { text: "Populated via Dataview query.", cls: "ttrpg-muted" });
+    // Relationships
+    this.section(right, "Relationships", (b) => {
+      const rels = (fm.relationships as string[] ?? []);
+      if (rels.length === 0) {
+        b.createEl("p", { text: "No relationships yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
+      }
+      for (const rel of rels) {
+        const row = b.createDiv();
+        row.style.cssText = "font-size:13px;color:var(--color-text-primary);padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary)";
+        row.textContent = rel;
+      }
+      const addRow = b.createDiv();
+      addRow.style.cssText = "display:flex;gap:5px;margin-top:6px";
+      const inp = addRow.createEl("input");
+      inp.placeholder = "[[Character name]]";
+      inp.style.cssText = "flex:1;font-size:13px;padding:4px 7px;color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md)";
+      const addBtn = addRow.createEl("button", { text: "Add" });
+      addBtn.onclick = async () => {
+        const val = inp.value.trim();
+        if (!val || !this.file) return;
+        const newRels = [...rels, val];
+        fm.relationships = newRels;
+        await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
+        inp.value = "";
+        await this.render();
+      };
+      inp.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
     });
   }
 
-  private createSection(
-    parent: HTMLElement,
-    title: string,
-    builder: (body: HTMLElement) => void
-  ): void {
-    const section = parent.createDiv("ttrpg-section");
-    const head = section.createDiv("ttrpg-section-head");
-    head.createSpan({ text: title, cls: "ttrpg-section-title" });
-    const toggle = head.createSpan({ text: "▾", cls: "ttrpg-section-toggle open" });
-    const body = section.createDiv("ttrpg-section-body");
+  private section(parent: HTMLElement, title: string, builder: (body: HTMLElement) => void): void {
+    const wrap = parent.createDiv();
+    wrap.style.cssText = "border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin-bottom:10px";
+    const head = wrap.createDiv();
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--color-background-secondary);cursor:pointer;border-bottom:0.5px solid var(--color-border-tertiary)";
+    head.createSpan({ text: title }).style.cssText = "font-size:13px;font-weight:500;color:var(--color-text-primary)";
+    const toggle = head.createSpan({ text: "▾" });
+    toggle.style.cssText = "font-size:12px;color:var(--color-text-tertiary);transition:transform 0.2s";
+    const body = wrap.createDiv();
+    body.style.cssText = "padding:10px 12px;background:var(--color-background-primary)";
     builder(body);
     head.onclick = () => {
-      body.classList.toggle("hidden");
-      toggle.classList.toggle("open");
+      const hidden = body.style.display === "none";
+      body.style.display = hidden ? "" : "none";
+      toggle.style.transform = hidden ? "" : "rotate(-90deg)";
     };
   }
 
-  private parseFrontmatter(content: string): Record<string, unknown> {
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!match) return {};
-    try { return parseYaml(match[1]) ?? {}; }
-    catch { return {}; }
+  private editableSection(parent: HTMLElement, title: string, content: string, sectionName: string): void {
+    this.section(parent, title, (b) => {
+      const ta = b.createEl("textarea");
+      ta.value = content;
+      ta.placeholder = `${title}…`;
+      ta.style.cssText = "width:100%;min-height:80px;font-size:13px;font-family:var(--font-sans);color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:8px;resize:vertical";
+      ta.onblur = async () => {
+        if (this.file) await writeNoteSection(this.app, this.file, sectionName, ta.value);
+      };
+    });
+  }
+
+  private pill(parent: HTMLElement, text: string, bg: string, color: string): void {
+    const span = parent.createSpan({ text });
+    span.style.cssText = `font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500;background:${bg};color:${color}`;
   }
 }

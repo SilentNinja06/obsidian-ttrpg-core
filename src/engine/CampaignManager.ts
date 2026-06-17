@@ -17,11 +17,12 @@ export class CampaignManager {
 
     for (const child of folder.children) {
       if ("children" in child) {
-        const configFile = child.children.find(
+        const subfolder = child as { name: string; children: unknown[] };
+        const configFile = subfolder.children.find(
           (f) => f instanceof TFile && f.name === "campaign.yaml"
         ) as TFile | undefined;
         if (configFile) {
-          await this.loadCampaign(child.name, configFile);
+          await this.loadCampaign(subfolder.name, configFile);
         }
       }
     }
