@@ -13,6 +13,7 @@ import { CampaignManager } from "./engine/CampaignManager";
 import { TemplateEngine } from "./engine/TemplateEngine";
 import { CombatStore } from "./engine/CombatStore";
 import { NoteCreationModal } from "./modals/NoteCreationModal";
+import { CampaignSwitcherModal, CampaignCreateModal } from "./modals/CampaignModal";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
 import { CombatView, VIEW_TYPE_COMBAT } from "./views/CombatView";
 import { CharacterView, VIEW_TYPE_CHARACTER } from "./views/CharacterView";
@@ -88,6 +89,8 @@ export default class TTRPGPlugin extends Plugin {
 
     this.addCommand({ id: "open-dashboard", name: "Open dashboard", callback: () => this.activateView(VIEW_TYPE_DASHBOARD) });
     this.addCommand({ id: "open-combat", name: "Open combat tracker", callback: () => this.activateView(VIEW_TYPE_COMBAT) });
+    this.addCommand({ id: "switch-campaign", name: "Switch campaign", callback: () => this.openCampaignSwitcher() });
+    this.addCommand({ id: "new-campaign", name: "New campaign", callback: () => this.openCampaignCreate() });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
     this.addCommand({ id: "new-note-session", name: "New session note", callback: () => this.openNewNoteModal("session") });
@@ -216,6 +219,36 @@ export default class TTRPGPlugin extends Plugin {
       this.systemLoader,
       this.settings.defaultCampaignFolder,
       type as any
+    ).open();
+  }
+
+  private async switchCampaign(id: string): Promise<void> {
+    this.campaignManager.setActive(id);
+    this.settings.activeCampaign = id;
+    await this.saveSettings();
+    await this.activateView(VIEW_TYPE_DASHBOARD);
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DASHBOARD);
+    for (const leaf of leaves) await (leaf.view as DashboardView).render();
+  }
+
+  openCampaignSwitcher(): void {
+    new CampaignSwitcherModal(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder,
+      (id) => this.switchCampaign(id),
+      () => this.openCampaignCreate()
+    ).open();
+  }
+
+  openCampaignCreate(): void {
+    new CampaignCreateModal(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder,
+      (id) => this.switchCampaign(id)
     ).open();
   }
 

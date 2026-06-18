@@ -4,6 +4,7 @@ import type { SystemLoader } from "../engine/SystemLoader";
 import type { TemplateEngine } from "../engine/TemplateEngine";
 import type { NoteCreationModal } from "../modals/NoteCreationModal";
 import type { NoteType } from "../types";
+import { CampaignSwitcherModal, CampaignCreateModal } from "../modals/CampaignModal";
 
 export const VIEW_TYPE_DASHBOARD = "ttrpg-dashboard";
 
@@ -71,33 +72,25 @@ export class DashboardView extends ItemView {
         cls: "ttrpg-empty",
       });
       const all = this.campaignManager.getAll();
+      const btnRow = container.createDiv();
+      btnRow.style.cssText = "display:flex;gap:8px;margin-top:8px";
       if (all.size > 0) {
-        container.createEl("p", { text: "Available campaigns:", cls: "ttrpg-muted" });
-        for (const [id, cfg] of all.entries()) {
-          const btn = container.createEl("button", { text: `Load: ${cfg.name}` });
-          btn.onclick = async () => {
-            this.campaignManager.setActive(id);
-            // Persist to settings
-            const plugin = (this.app as any).plugins?.plugins?.['ttrpg-core'];
-            if (plugin) {
-              plugin.settings.activeCampaign = id;
-              await plugin.saveSettings();
-            }
-            await this.render();
-          };
-        }
-      } else {
-        container.createEl("p", {
-          text: "Set Active campaign in Settings → TTRPG Campaign Manager.",
-          cls: "ttrpg-muted",
-        });
+        const switchBtn = btnRow.createEl("button", { text: "Choose campaign" });
+        switchBtn.onclick = () => this.openSwitcher();
       }
+      const createBtn = btnRow.createEl("button", { text: "+ New campaign" });
+      createBtn.onclick = () => this.openCreate();
       return;
     }
 
     // Header
     const header = container.createDiv("ttrpg-dash-header");
-    header.createEl("h2", { text: campaign.name });
+    const titleEl = header.createEl("h2", { text: campaign.name });
+    titleEl.style.cssText = "cursor:pointer;display:inline-flex;align-items:center;gap:6px";
+    titleEl.title = "Click to switch campaign";
+    const caret = titleEl.createSpan({ text: " ⌄" });
+    caret.style.cssText = "font-size:14px;color:var(--color-text-tertiary)";
+    titleEl.onclick = () => this.openSwitcher();
     header.createEl("p", {
       text: `${this.systemLoader.get(campaign.system)?.name ?? campaign.system} · ${campaign.status}`,
       cls: "ttrpg-muted",
@@ -181,6 +174,37 @@ export class DashboardView extends ItemView {
       type: "ttrpg-combat",
       active: true,
     });
+  }
+
+  private async switchTo(id: string): Promise<void> {
+    this.campaignManager.setActive(id);
+    const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+    if (plugin) {
+      plugin.settings.activeCampaign = id;
+      await plugin.saveSettings();
+    }
+    await this.render();
+  }
+
+  openSwitcher(): void {
+    new CampaignSwitcherModal(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.campaignsFolder,
+      (id) => this.switchTo(id),
+      () => this.openCreate()
+    ).open();
+  }
+
+  openCreate(): void {
+    new CampaignCreateModal(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.campaignsFolder,
+      (id) => this.switchTo(id)
+    ).open();
   }
 
   private formatRelativeTime(mtime: number): string {
