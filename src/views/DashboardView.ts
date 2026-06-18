@@ -105,6 +105,24 @@ export class DashboardView extends ItemView {
     const combatBtn = actions.createEl("button", { text: "Combat tracker" });
     combatBtn.onclick = () => this.openCombat();
 
+    const searchBtn = actions.createEl("button", { text: "🔍 Search" });
+    searchBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openQuickSearch) plugin.openQuickSearch();
+    };
+
+    const prepBtn = actions.createEl("button", { text: "📋 Session prep" });
+    prepBtn.onclick = () => {
+      this.app.workspace.getRightLeaf(false)?.setViewState({ type: "ttrpg-prep", active: true });
+    };
+
+    const mapBtn = actions.createEl("button", { text: "🔗 Relationship map" });
+    mapBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-relmap", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
     const popoutBtn = actions.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => {
       this.app.workspace.moveLeafToPopout(this.leaf);

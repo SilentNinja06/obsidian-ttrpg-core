@@ -14,11 +14,14 @@ import { TemplateEngine } from "./engine/TemplateEngine";
 import { CombatStore } from "./engine/CombatStore";
 import { NoteCreationModal } from "./modals/NoteCreationModal";
 import { CampaignSwitcherModal, CampaignCreateModal } from "./modals/CampaignModal";
+import { QuickSearchModal } from "./modals/QuickSearchModal";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
 import { CombatView, VIEW_TYPE_COMBAT } from "./views/CombatView";
 import { CharacterView, VIEW_TYPE_CHARACTER } from "./views/CharacterView";
 import { SessionNoteView, VIEW_TYPE_SESSION } from "./views/SessionNoteView";
 import { LoreView, VIEW_TYPE_LORE } from "./views/LoreView";
+import { PrepView, VIEW_TYPE_PREP } from "./views/PrepView";
+import { RelationshipMapView, VIEW_TYPE_RELMAP } from "./views/RelationshipMapView";
 import { requireDataview } from "./utils/dataview";
 import { DEFAULT_SETTINGS, TTRPGSettings } from "./types";
 
@@ -82,6 +85,17 @@ export default class TTRPGPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CHARACTER, (leaf) => new CharacterView(leaf, this.systemLoader));
     this.registerView(VIEW_TYPE_SESSION, (leaf) => new SessionNoteView(leaf));
     this.registerView(VIEW_TYPE_LORE, (leaf) => new LoreView(leaf));
+    this.registerView(VIEW_TYPE_PREP, (leaf) => new PrepView(
+      leaf,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder
+    ));
+    this.registerView(VIEW_TYPE_RELMAP, (leaf) => new RelationshipMapView(
+      leaf,
+      this.campaignManager,
+      this.settings.defaultCampaignFolder
+    ));
 
     this.addRibbonIcon("shield", "TTRPG Dashboard", () => {
       this.activateView(VIEW_TYPE_DASHBOARD);
@@ -91,6 +105,9 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "open-combat", name: "Open combat tracker", callback: () => this.activateView(VIEW_TYPE_COMBAT) });
     this.addCommand({ id: "switch-campaign", name: "Switch campaign", callback: () => this.openCampaignSwitcher() });
     this.addCommand({ id: "new-campaign", name: "New campaign", callback: () => this.openCampaignCreate() });
+    this.addCommand({ id: "quick-search", name: "Quick search (jump to note)", callback: () => this.openQuickSearch() });
+    this.addCommand({ id: "open-prep", name: "Open session prep", callback: () => this.activateView(VIEW_TYPE_PREP) });
+    this.addCommand({ id: "open-relmap", name: "Open relationship map", callback: () => this.activateViewMain(VIEW_TYPE_RELMAP) });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
     this.addCommand({ id: "new-note-session", name: "New session note", callback: () => this.openNewNoteModal("session") });
@@ -121,7 +138,7 @@ export default class TTRPGPlugin extends Plugin {
   }
 
   async onunload(): Promise<void> {
-    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE]
+    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE, VIEW_TYPE_PREP, VIEW_TYPE_RELMAP]
       .forEach((t) => this.app.workspace.detachLeavesOfType(t));
   }
 
@@ -131,6 +148,18 @@ export default class TTRPGPlugin extends Plugin {
     let leaf: WorkspaceLeaf | null = existing.length > 0 ? existing[0] : workspace.getRightLeaf(false);
     if (!leaf) return;
     if (existing.length === 0) await leaf.setViewState({ type, active: true });
+    workspace.revealLeaf(leaf);
+  }
+
+  async activateViewMain(type: string): Promise<void> {
+    const { workspace } = this.app;
+    const existing = workspace.getLeavesOfType(type);
+    if (existing.length > 0) {
+      workspace.revealLeaf(existing[0]);
+      return;
+    }
+    const leaf = workspace.getLeaf("tab");
+    await leaf.setViewState({ type, active: true });
     workspace.revealLeaf(leaf);
   }
 
@@ -249,6 +278,14 @@ export default class TTRPGPlugin extends Plugin {
       this.systemLoader,
       this.settings.defaultCampaignFolder,
       (id) => this.switchCampaign(id)
+    ).open();
+  }
+
+  openQuickSearch(): void {
+    new QuickSearchModal(
+      this.app,
+      this.campaignManager,
+      this.settings.defaultCampaignFolder
     ).open();
   }
 
