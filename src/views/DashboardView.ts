@@ -5,6 +5,7 @@ import type { TemplateEngine } from "../engine/TemplateEngine";
 import type { NoteCreationModal } from "../modals/NoteCreationModal";
 import type { NoteType } from "../types";
 import { CampaignSwitcherModal, CampaignCreateModal } from "../modals/CampaignModal";
+import { collectOpenThreads, collectUnassignedLoot } from "../utils/queries";
 
 export const VIEW_TYPE_DASHBOARD = "ttrpg-dashboard";
 
@@ -128,10 +129,56 @@ export class DashboardView extends ItemView {
       btn.onclick = () => this.openNewNote(type);
     }
 
+    // Open threads (live from session notes)
+    const campaignFolder = `${this.campaignsFolder}/${campaignId}`;
+    const threads = await collectOpenThreads(this.app, campaignFolder);
+    const threadsSection = container.createDiv("ttrpg-section");
+    threadsSection.createEl("h3", { text: `Open threads${threads.length ? ` (${threads.length})` : ""}` });
+    if (threads.length === 0) {
+      threadsSection.createEl("p", { text: "No open threads.", cls: "ttrpg-muted" });
+    } else {
+      const list = threadsSection.createDiv();
+      for (const thread of threads.slice(0, 12)) {
+        const row = list.createDiv();
+        row.style.cssText = "display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:13px";
+        const dot = row.createSpan();
+        dot.style.cssText = "width:6px;height:6px;border-radius:50%;background:#BA7517;flex-shrink:0;margin-top:5px";
+        row.createSpan({ text: thread.text }).style.cssText = "flex:1;color:var(--color-text-primary);line-height:1.4";
+        const src = row.createEl("a", { text: thread.sessionName });
+        src.style.cssText = "font-size:11px;color:var(--color-text-tertiary);white-space:nowrap;cursor:pointer";
+        src.onclick = (e) => {
+          e.preventDefault();
+          const f = this.app.vault.getFileByPath(thread.sessionPath);
+          if (f) this.app.workspace.getLeaf(false).openFile(f);
+        };
+      }
+    }
+
+    // Unassigned loot (live — inventory notes + session loot bullets)
+    const loot = await collectUnassignedLoot(this.app, campaignFolder);
+    const lootSection = container.createDiv("ttrpg-section");
+    lootSection.createEl("h3", { text: `Unassigned loot${loot.length ? ` (${loot.length})` : ""}` });
+    if (loot.length === 0) {
+      lootSection.createEl("p", { text: "No unassigned loot.", cls: "ttrpg-muted" });
+    } else {
+      const list = lootSection.createDiv();
+      for (const item of loot.slice(0, 12)) {
+        const row = list.createDiv();
+        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:13px";
+        row.createSpan({ text: item.name }).style.cssText = "flex:1;color:var(--color-text-primary)";
+        const src = row.createEl("a", { text: item.source });
+        src.style.cssText = "font-size:11px;color:var(--color-text-tertiary);white-space:nowrap;cursor:pointer";
+        src.onclick = (e) => {
+          e.preventDefault();
+          const f = this.app.vault.getFileByPath(item.sourcePath);
+          if (f) this.app.workspace.getLeaf(false).openFile(f);
+        };
+      }
+    }
+
     // Recent files
     const recentSection = container.createDiv("ttrpg-section");
     recentSection.createEl("h3", { text: "Recent activity" });
-    const campaignFolder = `${this.campaignsFolder}/${campaignId}`;
     const recentFiles = this.app.vault
       .getMarkdownFiles()
       .filter((f) => f.path.startsWith(campaignFolder))

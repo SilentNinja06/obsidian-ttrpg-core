@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import { readNote, writeFrontmatterKey, writeNoteSection, readSection } from "../utils/fileIO";
+import { collectBacklinks } from "../utils/queries";
 
 export const VIEW_TYPE_LORE = "ttrpg-lore";
 
@@ -170,41 +171,47 @@ export class LoreView extends ItemView {
       };
     });
 
-    // Session appearances (right)
+    // Auto-detected backlinks
+    const backlinks = this.file ? collectBacklinks(this.app, this.file) : [];
+    const sessionBacklinks = backlinks.filter((b) => b.type === "session");
+    const otherBacklinks = backlinks.filter((b) => b.type !== "session");
+
+    // Session appearances (right) — auto from backlinks
     this.section(right, "Session appearances", (b) => {
-      const appearances = (fm["session-appearances"] as string[]) ?? [];
-      if (appearances.length === 0) {
-        b.createEl("p", { text: "No sessions linked yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
+      if (sessionBacklinks.length === 0) {
+        b.createEl("p", { text: "No sessions reference this yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
       }
-      for (const sess of appearances) {
-        const pill = b.createSpan({ text: sess });
-        pill.style.cssText = "display:inline-block;font-size:12px;padding:3px 8px;margin:2px;border-radius:10px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary)";
+      for (const sess of sessionBacklinks) {
+        const pill = b.createEl("a", { text: sess.name });
+        pill.style.cssText = "display:inline-block;font-size:12px;padding:3px 8px;margin:2px;border-radius:10px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);color:var(--color-text-secondary);cursor:pointer";
+        pill.onclick = (e) => {
+          e.preventDefault();
+          const f = this.app.vault.getFileByPath(sess.path);
+          if (f) this.app.workspace.getLeaf(false).openFile(f);
+        };
       }
     });
 
-    // Connections (right)
+    // Connections (right) — auto from backlinks, grouped by type
     this.section(right, "Connections", (b) => {
-      const connections = (fm.connections as string[] ?? []);
-      for (const conn of connections) {
-        const row = b.createDiv({ text: conn });
-        row.style.cssText = "font-size:13px;color:var(--color-text-primary);padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary)";
+      if (otherBacklinks.length === 0) {
+        b.createEl("p", { text: "No characters, factions, or places link here yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
       }
-      const addRow = b.createDiv();
-      addRow.style.cssText = "display:flex;gap:5px;margin-top:6px";
-      const inp = addRow.createEl("input");
-      inp.placeholder = "[[Character or faction]]";
-      inp.style.cssText = "flex:1;font-size:13px;padding:4px 7px;color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md)";
-      const addBtn = addRow.createEl("button", { text: "Add" });
-      addBtn.onclick = async () => {
-        const val = inp.value.trim();
-        if (!val || !this.file) return;
-        const newConns = [...connections, val];
-        fm.connections = newConns;
-        await writeFrontmatterKey(this.app, this.file, "connections", newConns);
-        inp.value = "";
-        await this.render();
-      };
-      inp.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
+      const typeIcons: Record<string, string> = { character: "👤", faction: "⚔️", location: "🏰", history: "📜", item: "⚗️" };
+      for (const conn of otherBacklinks) {
+        const row = b.createDiv();
+        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:13px";
+        row.createSpan({ text: typeIcons[conn.type] ?? "📄" });
+        const link = row.createEl("a", { text: conn.name });
+        link.style.cssText = "flex:1;color:#185FA5;cursor:pointer";
+        link.onclick = (e) => {
+          e.preventDefault();
+          const f = this.app.vault.getFileByPath(conn.path);
+          if (f) this.app.workspace.getLeaf(false).openFile(f);
+        };
+        row.createSpan({ text: conn.type }).style.cssText = "font-size:11px;padding:1px 6px;border-radius:8px;background:var(--color-background-secondary);color:var(--color-text-secondary)";
+      }
+      b.createEl("p", { text: "Connections appear automatically when other notes link here with [[wikilinks]]." }).style.cssText = "font-size:11px;color:var(--color-text-tertiary);margin-top:8px;font-style:italic";
     });
   }
 

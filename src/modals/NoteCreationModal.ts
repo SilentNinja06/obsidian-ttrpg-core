@@ -15,6 +15,9 @@ export class NoteCreationModal extends Modal {
   private selectedSystem: string = "";
   private noteName: string = "";
   private isPC: boolean = false;
+  private typeLocked: boolean = false;
+  private pcToggleContainer: HTMLElement | null = null;
+  private pathPreviewEl: HTMLElement | null = null;
 
   constructor(
     app: App,
@@ -29,7 +32,10 @@ export class NoteCreationModal extends Modal {
     this.campaignManager = campaignManager;
     this.systemLoader = systemLoader;
     this.campaignsFolder = campaignsFolder;
-    if (defaultType) this.selectedType = defaultType;
+    if (defaultType) {
+      this.selectedType = defaultType;
+      this.typeLocked = true;
+    }
 
     const activeCampaign = campaignManager.getActiveId();
     if (activeCampaign) {
@@ -37,6 +43,24 @@ export class NoteCreationModal extends Modal {
       const config = campaignManager.getActive();
       if (config) this.selectedSystem = config.system;
     }
+  }
+
+  private refreshPCToggle(): void {
+    if (!this.pcToggleContainer) return;
+    this.pcToggleContainer.empty();
+    if (this.selectedType !== "character") {
+      this.isPC = false;
+      return;
+    }
+    new Setting(this.pcToggleContainer)
+      .setName("Player character?")
+      .setDesc("On for PCs — they go in characters/pcs/ instead of npcs/")
+      .addToggle((toggle) => {
+        toggle.setValue(this.isPC).onChange((val) => {
+          this.isPC = val;
+          if (this.pathPreviewEl) this.updatePathPreview(this.pathPreviewEl);
+        });
+      });
   }
 
   onOpen(): void {
@@ -62,42 +86,49 @@ export class NoteCreationModal extends Modal {
         setTimeout(() => text.inputEl.focus(), 50);
       });
 
-    // Type
-    new Setting(contentEl).setName("Type").setDesc("What kind of note is this?");
-    const typeGrid = contentEl.createDiv("ttrpg-type-grid");
-    const types: { type: NoteType; icon: string; label: string }[] = [
-      { type: "character", icon: "👤", label: "Character" },
-      { type: "location", icon: "🏰", label: "Location" },
-      { type: "faction", icon: "⚔️", label: "Faction" },
-      { type: "session", icon: "📋", label: "Session" },
-      { type: "history", icon: "📜", label: "History" },
-      { type: "item", icon: "⚗️", label: "Item" },
-    ];
-    const typeButtons: HTMLElement[] = [];
-    for (const { type, icon, label } of types) {
-      const btn = typeGrid.createEl("button", { cls: "ttrpg-type-btn" });
-      btn.createSpan({ text: icon, cls: "ttrpg-type-icon" });
-      btn.createSpan({ text: label, cls: "ttrpg-type-label" });
-      if (type === this.selectedType) btn.addClass("selected");
-      btn.onclick = () => {
-        this.selectedType = type;
-        typeButtons.forEach((b) => b.removeClass("selected"));
-        btn.addClass("selected");
-        this.updatePathPreview(pathPreview);
-      };
-      typeButtons.push(btn);
+    // Type — if a type was pre-selected (e.g. clicked "Character" on the
+    // dashboard), show it as a fixed label instead of the full picker.
+    const TYPE_META: Record<NoteType, { icon: string; label: string }> = {
+      character: { icon: "👤", label: "Character" },
+      location: { icon: "🏰", label: "Location" },
+      faction: { icon: "⚔️", label: "Faction" },
+      session: { icon: "📋", label: "Session" },
+      history: { icon: "📜", label: "History" },
+      item: { icon: "⚗️", label: "Item" },
+    };
+
+    if (this.typeLocked) {
+      const meta = TYPE_META[this.selectedType];
+      new Setting(contentEl)
+        .setName("Type")
+        .addText((t) => {
+          t.setValue(`${meta.icon} ${meta.label}`);
+          t.setDisabled(true);
+        });
+    } else {
+      new Setting(contentEl).setName("Type").setDesc("What kind of note is this?");
+      const typeGrid = contentEl.createDiv("ttrpg-type-grid");
+      const types = (Object.keys(TYPE_META) as NoteType[]).map((type) => ({ type, ...TYPE_META[type] }));
+      const typeButtons: HTMLElement[] = [];
+      for (const { type, icon, label } of types) {
+        const btn = typeGrid.createEl("button", { cls: "ttrpg-type-btn" });
+        btn.createSpan({ text: icon, cls: "ttrpg-type-icon" });
+        btn.createSpan({ text: label, cls: "ttrpg-type-label" });
+        if (type === this.selectedType) btn.addClass("selected");
+        btn.onclick = () => {
+          this.selectedType = type;
+          typeButtons.forEach((b) => b.removeClass("selected"));
+          btn.addClass("selected");
+          this.updatePathPreview(pathPreview);
+          this.refreshPCToggle();
+        };
+        typeButtons.push(btn);
+      }
     }
 
-    // PC toggle (shows when character is selected)
-    new Setting(contentEl)
-      .setName("Player character?")
-      .setDesc("Toggle on for PCs — they go in characters/pcs/ instead of npcs/")
-      .addToggle((toggle) => {
-        toggle.onChange((val) => {
-          this.isPC = val;
-          this.updatePathPreview(pathPreview);
-        });
-      });
+    // PC toggle container — only populated when type is character
+    this.pcToggleContainer = contentEl.createDiv();
+    this.refreshPCToggle();
 
     // Campaign
     const campaigns = Array.from(this.campaignManager.getAll().entries());
@@ -141,6 +172,7 @@ export class NoteCreationModal extends Modal {
     const pathPreview = previewSetting.controlEl.createEl("code", {
       cls: "ttrpg-path-preview",
     });
+    this.pathPreviewEl = pathPreview;
     this.updatePathPreview(pathPreview);
 
     // Footer buttons
