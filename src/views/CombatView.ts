@@ -50,6 +50,32 @@ export class CombatView extends ItemView {
     return this.systemLoader.get(campaign.system)?.entities?.character?.hp;
   }
 
+  private initiativeDie(): number {
+    const campaign = this.campaignManager.getActive();
+    const dice = campaign ? this.systemLoader.get(campaign.system)?.combat?.dice : undefined;
+    const m = dice?.match(/d(\d+)/i);
+    return m ? parseInt(m[1]) : 20;
+  }
+
+  private rollNpcInitiative(): void {
+    const sides = this.initiativeDie();
+    let rolled = 0;
+    for (const c of this.combatants) {
+      if (c.type === "npc") {
+        c.init = Math.floor(Math.random() * sides) + 1;
+        rolled++;
+      }
+    }
+    if (rolled === 0) {
+      this.addLog("No NPCs to roll initiative for");
+    } else {
+      this.addLog(`Rolled d${sides} initiative for ${rolled} NPC${rolled === 1 ? "" : "s"} — enter PC rolls manually`);
+    }
+    this.activeIdx = 0;
+    this.renderCombatants();
+    this.autosave();
+  }
+
   private snapshot() {
     return {
       round: this.round,
@@ -175,6 +201,9 @@ export class CombatView extends ItemView {
 
     const addBtn = toolbar.createEl("button", { text: "+ Add" });
     addBtn.onclick = () => this.addCombatant();
+
+    const rollInitBtn = toolbar.createEl("button", { text: "🎲 Roll NPC init" });
+    rollInitBtn.onclick = () => this.rollNpcInitiative();
 
     const saveBtn = toolbar.createEl("button", { text: "Save encounter" });
     saveBtn.onclick = () => this.saveEncounter();
