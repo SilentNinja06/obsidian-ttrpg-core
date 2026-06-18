@@ -123,6 +123,13 @@ export class DashboardView extends ItemView {
       this.app.workspace.revealLeaf(leaf);
     };
 
+    const timelineBtn = actions.createEl("button", { text: "🕐 Timeline" });
+    timelineBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-timeline", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
     const popoutBtn = actions.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => {
       this.app.workspace.moveLeafToPopout(this.leaf);

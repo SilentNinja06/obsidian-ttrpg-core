@@ -22,6 +22,7 @@ import { SessionNoteView, VIEW_TYPE_SESSION } from "./views/SessionNoteView";
 import { LoreView, VIEW_TYPE_LORE } from "./views/LoreView";
 import { PrepView, VIEW_TYPE_PREP } from "./views/PrepView";
 import { RelationshipMapView, VIEW_TYPE_RELMAP } from "./views/RelationshipMapView";
+import { TimelineView, VIEW_TYPE_TIMELINE } from "./views/TimelineView";
 import { requireDataview } from "./utils/dataview";
 import { DEFAULT_SETTINGS, TTRPGSettings } from "./types";
 
@@ -96,6 +97,11 @@ export default class TTRPGPlugin extends Plugin {
       this.campaignManager,
       this.settings.defaultCampaignFolder
     ));
+    this.registerView(VIEW_TYPE_TIMELINE, (leaf) => new TimelineView(
+      leaf,
+      this.campaignManager,
+      this.settings.defaultCampaignFolder
+    ));
 
     this.addRibbonIcon("shield", "TTRPG Dashboard", () => {
       this.activateView(VIEW_TYPE_DASHBOARD);
@@ -108,6 +114,7 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "quick-search", name: "Quick search (jump to note)", callback: () => this.openQuickSearch() });
     this.addCommand({ id: "open-prep", name: "Open session prep", callback: () => this.activateView(VIEW_TYPE_PREP) });
     this.addCommand({ id: "open-relmap", name: "Open relationship map", callback: () => this.activateViewMain(VIEW_TYPE_RELMAP) });
+    this.addCommand({ id: "open-timeline", name: "Open timeline", callback: () => this.activateViewMain(VIEW_TYPE_TIMELINE) });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
     this.addCommand({ id: "new-note-session", name: "New session note", callback: () => this.openNewNoteModal("session") });
@@ -138,7 +145,7 @@ export default class TTRPGPlugin extends Plugin {
   }
 
   async onunload(): Promise<void> {
-    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE, VIEW_TYPE_PREP, VIEW_TYPE_RELMAP]
+    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE, VIEW_TYPE_PREP, VIEW_TYPE_RELMAP, VIEW_TYPE_TIMELINE]
       .forEach((t) => this.app.workspace.detachLeavesOfType(t));
   }
 

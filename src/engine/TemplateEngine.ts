@@ -75,6 +75,11 @@ export class TemplateEngine {
       delete base["session-appearances"];
     }
 
+    if (type === "history") {
+      base.era = "";
+      base["timeline-order"] = 0;
+    }
+
     if (type === "item") {
       base.status = "unassigned";
       base["held-by"] = "";

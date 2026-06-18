@@ -21,6 +21,7 @@ const CORE_FIELDS: Record<string, { key: string; label: string }[]> = {
   ],
   history: [
     { key: "era", label: "Era" },
+    { key: "timeline-order", label: "Timeline order (number)" },
     { key: "location", label: "Location" },
     { key: "parties-involved", label: "Parties involved" },
     { key: "outcome", label: "Outcome" },
