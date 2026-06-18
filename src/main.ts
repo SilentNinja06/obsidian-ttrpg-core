@@ -15,6 +15,11 @@ import { CombatStore } from "./engine/CombatStore";
 import { NoteCreationModal } from "./modals/NoteCreationModal";
 import { CampaignSwitcherModal, CampaignCreateModal } from "./modals/CampaignModal";
 import { QuickSearchModal } from "./modals/QuickSearchModal";
+import { NpcGenerator } from "./engine/NpcGenerator";
+import { NpcGeneratorModal } from "./modals/NpcGeneratorModal";
+import { BatchNpcModal } from "./modals/BatchNpcModal";
+import { LootManager } from "./engine/LootManager";
+import { LootDistributionView, VIEW_TYPE_LOOT } from "./views/LootDistributionView";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
 import { CombatView, VIEW_TYPE_COMBAT } from "./views/CombatView";
 import { CharacterView, VIEW_TYPE_CHARACTER } from "./views/CharacterView";
@@ -32,6 +37,7 @@ export default class TTRPGPlugin extends Plugin {
   campaignManager!: CampaignManager;
   templateEngine!: TemplateEngine;
   combatStore!: CombatStore;
+  lootManager!: LootManager;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -48,6 +54,7 @@ export default class TTRPGPlugin extends Plugin {
     this.campaignManager = new CampaignManager(this.app);
     this.templateEngine = new TemplateEngine(this.app);
     this.combatStore = new CombatStore(this.app);
+    this.lootManager = new LootManager(this.app, this.campaignManager, this.systemLoader, this.settings.defaultCampaignFolder);
 
     this.app.workspace.onLayoutReady(async () => {
       await this.systemLoader.loadAll(this.settings.systemsFolder);
@@ -83,7 +90,7 @@ export default class TTRPGPlugin extends Plugin {
       this.systemLoader,
       this.settings.defaultCampaignFolder
     ));
-    this.registerView(VIEW_TYPE_CHARACTER, (leaf) => new CharacterView(leaf, this.systemLoader));
+    this.registerView(VIEW_TYPE_CHARACTER, (leaf) => new CharacterView(leaf, this.systemLoader, this.lootManager));
     this.registerView(VIEW_TYPE_SESSION, (leaf) => new SessionNoteView(leaf));
     this.registerView(VIEW_TYPE_LORE, (leaf) => new LoreView(leaf));
     this.registerView(VIEW_TYPE_PREP, (leaf) => new PrepView(
@@ -102,6 +109,13 @@ export default class TTRPGPlugin extends Plugin {
       this.campaignManager,
       this.settings.defaultCampaignFolder
     ));
+    this.registerView(VIEW_TYPE_LOOT, (leaf) => new LootDistributionView(
+      leaf,
+      this.campaignManager,
+      this.systemLoader,
+      this.lootManager,
+      this.settings.defaultCampaignFolder
+    ));
 
     this.addRibbonIcon("shield", "TTRPG Dashboard", () => {
       this.activateView(VIEW_TYPE_DASHBOARD);
@@ -115,6 +129,9 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "open-prep", name: "Open session prep", callback: () => this.activateView(VIEW_TYPE_PREP) });
     this.addCommand({ id: "open-relmap", name: "Open relationship map", callback: () => this.activateViewMain(VIEW_TYPE_RELMAP) });
     this.addCommand({ id: "open-timeline", name: "Open timeline", callback: () => this.activateViewMain(VIEW_TYPE_TIMELINE) });
+    this.addCommand({ id: "generate-npc", name: "Generate NPC", callback: () => this.openNpcGenerator() });
+    this.addCommand({ id: "generate-npc-batch", name: "Generate NPC batch", callback: () => this.openBatchGenerator() });
+    this.addCommand({ id: "open-loot", name: "Open loot distribution", callback: () => this.activateViewMain(VIEW_TYPE_LOOT) });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
     this.addCommand({ id: "new-note-session", name: "New session note", callback: () => this.openNewNoteModal("session") });
@@ -145,7 +162,7 @@ export default class TTRPGPlugin extends Plugin {
   }
 
   async onunload(): Promise<void> {
-    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE, VIEW_TYPE_PREP, VIEW_TYPE_RELMAP, VIEW_TYPE_TIMELINE]
+    [VIEW_TYPE_DASHBOARD, VIEW_TYPE_COMBAT, VIEW_TYPE_CHARACTER, VIEW_TYPE_SESSION, VIEW_TYPE_LORE, VIEW_TYPE_PREP, VIEW_TYPE_RELMAP, VIEW_TYPE_TIMELINE, VIEW_TYPE_LOOT]
       .forEach((t) => this.app.workspace.detachLeavesOfType(t));
   }
 
@@ -294,6 +311,68 @@ export default class TTRPGPlugin extends Plugin {
       this.campaignManager,
       this.settings.defaultCampaignFolder
     ).open();
+  }
+
+  openBatchGenerator(): void {
+    const generator = new NpcGenerator(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder
+    );
+    new BatchNpcModal(this.app, generator, async (bodies) => {
+      const toAdd = bodies.filter((b) => b.addToCombat);
+      if (toAdd.length === 0) return;
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_COMBAT);
+      let view: CombatView | null = leaves.length > 0 ? (leaves[0].view as CombatView) : null;
+      if (!view) {
+        const leaf = this.app.workspace.getRightLeaf(false);
+        if (leaf) {
+          await leaf.setViewState({ type: VIEW_TYPE_COMBAT, active: true });
+          await new Promise((r) => setTimeout(r, 200));
+          view = leaf.view as CombatView;
+          this.app.workspace.revealLeaf(leaf);
+        }
+      } else {
+        this.app.workspace.revealLeaf(leaves[0]);
+      }
+      if (view) {
+        for (const b of toAdd) view.addExternalCombatant(b.name, b.hp, b.filePath || undefined);
+      }
+    }).open();
+  }
+
+  openNpcGenerator(): void {
+    const generator = new NpcGenerator(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.settings.defaultCampaignFolder
+    );
+    new NpcGeneratorModal(this.app, generator, async (file, addToCombat) => {
+      // Open the new NPC note
+      await this.app.workspace.getLeaf(false).openFile(file);
+      // Optionally add to an open combat tracker
+      if (addToCombat) {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_COMBAT);
+        const cache = this.app.metadataCache.getFileCache(file);
+        const hpKeys = this.systemLoader.get(this.campaignManager.getActive()?.system ?? "")?.entities?.character?.hp;
+        const hp = hpKeys ? (cache?.frontmatter?.[hpKeys.max] as number) ?? 8 : 8;
+        if (leaves.length > 0) {
+          (leaves[0].view as CombatView).addExternalCombatant(file.basename, hp, file.path);
+          this.app.workspace.revealLeaf(leaves[0]);
+        } else {
+          // Open combat tracker then add
+          const leaf = this.app.workspace.getRightLeaf(false);
+          if (leaf) {
+            await leaf.setViewState({ type: VIEW_TYPE_COMBAT, active: true });
+            setTimeout(() => {
+              (leaf.view as CombatView).addExternalCombatant(file.basename, hp, file.path);
+            }, 200);
+          }
+        }
+      }
+    }).open();
   }
 
   async loadSettings(): Promise<void> {

@@ -130,6 +130,25 @@ export class DashboardView extends ItemView {
       this.app.workspace.revealLeaf(leaf);
     };
 
+    const npcBtn = actions.createEl("button", { text: "🎲 Generate NPC" });
+    npcBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openNpcGenerator) plugin.openNpcGenerator();
+    };
+
+    const batchBtn = actions.createEl("button", { text: "🎲 NPC batch" });
+    batchBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openBatchGenerator) plugin.openBatchGenerator();
+    };
+
+    const lootBtn = actions.createEl("button", { text: "💰 Distribute loot" });
+    lootBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-loot", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
     const popoutBtn = actions.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => {
       this.app.workspace.moveLeafToPopout(this.leaf);

@@ -1,17 +1,20 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import type { SystemLoader } from "../engine/SystemLoader";
+import type { LootManager } from "../engine/LootManager";
 import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection } from "../utils/fileIO";
-import { InputModal } from "../modals/InputModal";
+import { InputModal, promptText } from "../modals/InputModal";
 
 export const VIEW_TYPE_CHARACTER = "ttrpg-character";
 
 export class CharacterView extends ItemView {
   private systemLoader: SystemLoader;
+  private lootManager: LootManager | null;
   file: TFile | null = null;
 
-  constructor(leaf: WorkspaceLeaf, systemLoader: SystemLoader) {
+  constructor(leaf: WorkspaceLeaf, systemLoader: SystemLoader, lootManager?: LootManager) {
     super(leaf);
     this.systemLoader = systemLoader;
+    this.lootManager = lootManager ?? null;
   }
 
   getViewType(): string { return VIEW_TYPE_CHARACTER; }
@@ -147,14 +150,21 @@ export class CharacterView extends ItemView {
           val.onclick = () => {
             const input = createEl("input");
             input.type = isNum ? "number" : "text";
-            input.value = (cur === undefined || cur === null) ? "" : String(cur);
+            if (isNum) {
+              const n = typeof cur === "number" ? cur : parseFloat(String(cur ?? ""));
+              input.value = !isNaN(n) && n !== 0 ? String(n) : "";
+              input.placeholder = "0";
+            } else {
+              input.value = (cur === undefined || cur === null) ? "" : String(cur);
+            }
             input.style.cssText = "width:100%;font-size:14px;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--color-border-primary);border-radius:4px;padding:3px 6px";
             val.replaceWith(input);
             input.focus();
+            input.select();
             let done = false;
             const commit = async () => {
               if (done) return; done = true;
-              const newVal = isNum ? (parseInt(input.value) || 0) : input.value;
+              const newVal = isNum ? (input.value === "" ? 0 : (parseInt(input.value) || 0)) : input.value;
               fm[field.key] = newVal;
               if (this.file) await writeFrontmatterKey(this.app, this.file, field.key, newVal);
               await this.render();
@@ -186,12 +196,16 @@ export class CharacterView extends ItemView {
           valEl.title = `Click to edit ${stat.label}`;
           valEl.onclick = () => {
             const input = createEl("input");
-            input.type = "number"; input.value = String(val);
+            input.type = "number";
+            // Blank a 0 so typing doesn't yield "02"/"20"; show real values to edit
+            input.value = val === 0 ? "" : String(val);
+            input.placeholder = "0";
             input.style.cssText = "width:100%;font-size:16px;text-align:center;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--color-border-primary);border-radius:4px";
             valEl.replaceWith(input);
             input.focus();
+            input.select();
             input.onblur = async () => {
-              const newVal = parseInt(input.value) || 0;
+              const newVal = input.value === "" ? 0 : (parseInt(input.value) || 0);
               fm[stat.key] = newVal;
               if (this.file) await writeFrontmatterKey(this.app, this.file, stat.key, newVal);
               await this.render();
@@ -261,6 +275,11 @@ export class CharacterView extends ItemView {
       };
     });
 
+    // Inventory & loadout (reads item notes where held-by = this character)
+    if (this.lootManager) {
+      await this.renderInventory(right);
+    }
+
     // Relationships
     this.section(right, "Relationships", (b) => {
       const rels = (fm.relationships as string[] ?? []);
@@ -288,6 +307,92 @@ export class CharacterView extends ItemView {
         await this.render();
       };
       inp.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
+    });
+  }
+
+  private async renderInventory(parent: HTMLElement): Promise<void> {
+    if (!this.file || !this.lootManager) return;
+    const pcName = this.file.basename;
+    const items = await this.lootManager.itemsHeldBy(pcName);
+
+    // Sort: equipped first, then by name — using the fresh fm we just read
+    items.sort((a, b) => {
+      const ea = a.fm.equipped ? 0 : 1;
+      const eb = b.fm.equipped ? 0 : 1;
+      if (ea !== eb) return ea - eb;
+      return a.file.basename.localeCompare(b.file.basename);
+    });
+
+    this.section(parent, `Inventory${items.length ? ` (${items.length})` : ""}`, (b) => {
+      if (items.length === 0) {
+        b.createEl("p", { text: "Nothing carried yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
+      }
+
+      for (const { file, fm } of items) {
+        const equipped = !!fm.equipped;
+        const qty = typeof fm.quantity === "number" ? fm.quantity : 1;
+
+        const row = b.createDiv();
+        row.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--color-border-tertiary)`;
+
+        const star = row.createSpan({ text: equipped ? "★" : "☆" });
+        star.style.cssText = `font-size:15px;cursor:pointer;color:${equipped ? "#BA7517" : "var(--color-text-tertiary)"}`;
+        star.title = equipped ? "Equipped — click to unequip" : "Click to equip";
+        star.onclick = async () => {
+          await this.lootManager!.setEquipped(file, !equipped);
+          await this.render();
+        };
+
+        const name = row.createEl("a", { text: file.basename });
+        name.style.cssText = `flex:1;font-size:13px;cursor:pointer;color:${equipped ? "var(--color-text-primary)" : "var(--color-text-secondary)"};font-weight:${equipped ? "600" : "400"}`;
+        name.onclick = (e) => { e.preventDefault(); this.app.workspace.getLeaf(false).openFile(file); };
+
+        const qtyEl = row.createSpan({ text: `×${qty}` });
+        qtyEl.style.cssText = "font-size:12px;color:var(--color-text-tertiary);cursor:pointer";
+        qtyEl.title = "Click to change quantity";
+        qtyEl.onclick = async () => {
+          const v = await promptText(this.app, "Quantity", `Quantity of ${file.basename}:`, String(qty));
+          if (v === null) return;
+          const n = parseInt(v) || 1;
+          await this.lootManager!.setQuantity(file, n);
+          await this.render();
+        };
+
+        const drop = row.createEl("button", { text: "drop" });
+        drop.style.cssText = "font-size:11px;padding:2px 6px;color:var(--color-text-tertiary)";
+        drop.title = "Unassign — returns to unassigned loot";
+        drop.onclick = async () => {
+          await this.lootManager!.unassignItem(file);
+          await this.render();
+        };
+      }
+
+      const addRow = b.createDiv();
+      addRow.style.cssText = "display:flex;gap:5px;margin-top:8px;align-items:center";
+      const inp = addRow.createEl("input");
+      inp.placeholder = "Add item…";
+      inp.style.cssText = "flex:1;font-size:13px;padding:4px 7px;color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md)";
+      const addBtn = addRow.createEl("button", { text: "+ Add" });
+      addBtn.style.cssText = "font-size:12px;padding:4px 8px";
+      addBtn.onclick = async () => {
+        const val = inp.value.trim();
+        if (!val) return;
+        await this.lootManager!.quickAddItem(pcName, val, false);
+        inp.value = "";
+        await this.render();
+      };
+      inp.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
+      const promoteBtn = addRow.createEl("button", { text: "+ Full note" });
+      promoteBtn.style.cssText = "font-size:12px;padding:4px 8px";
+      promoteBtn.title = "Add as a full item note with description sections";
+      promoteBtn.onclick = async () => {
+        const val = inp.value.trim();
+        if (!val) return;
+        const newFile = await this.lootManager!.quickAddItem(pcName, val, true);
+        inp.value = "";
+        await this.render();
+        if (newFile) this.app.workspace.getLeaf(false).openFile(newFile);
+      };
     });
   }
 

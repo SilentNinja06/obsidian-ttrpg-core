@@ -59,10 +59,27 @@ export class InputModal extends Modal {
         });
       } else {
         setting.addText((t) => {
-          t.setValue(String(this.values[field.key] ?? ""));
-          if (field.type === "number") t.inputEl.type = "number";
+          const raw = this.values[field.key];
+          if (field.type === "number") {
+            t.inputEl.type = "number";
+            const num = typeof raw === "number" ? raw : parseFloat(String(raw ?? ""));
+            // Show real non-zero values so they can be edited; blank out 0 so
+            // typing doesn't produce "02"/"20". Placeholder hints the default.
+            if (!isNaN(num) && num !== 0) {
+              t.setValue(String(num));
+            } else {
+              t.setValue("");
+              t.inputEl.placeholder = "0";
+            }
+          } else {
+            t.setValue(String(raw ?? ""));
+          }
           t.onChange((v) => {
-            this.values[field.key] = field.type === "number" ? (parseFloat(v) || 0) : v;
+            if (field.type === "number") {
+              this.values[field.key] = v === "" ? 0 : (parseFloat(v) || 0);
+            } else {
+              this.values[field.key] = v;
+            }
           });
           t.inputEl.addEventListener("keydown", (e) => {
             if (e.key === "Enter") this.submit();

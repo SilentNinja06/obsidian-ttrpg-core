@@ -4,6 +4,7 @@ import { InputModal, promptText } from "../modals/InputModal";
 import type { CombatStore } from "../engine/CombatStore";
 import type { CampaignManager } from "../engine/CampaignManager";
 import type { SystemLoader } from "../engine/SystemLoader";
+import { AddExistingModal } from "../modals/AddExistingModal";
 import { TFile, stringifyYaml } from "obsidian";
 import { writeFrontmatterKey, readNote, writeSection } from "../utils/fileIO";
 
@@ -55,6 +56,49 @@ export class CombatView extends ItemView {
     const dice = campaign ? this.systemLoader.get(campaign.system)?.combat?.dice : undefined;
     const m = dice?.match(/d(\d+)/i);
     return m ? parseInt(m[1]) : 20;
+  }
+
+  private openAddExisting(): void {
+    new AddExistingModal(
+      this.app,
+      this.campaignManager,
+      this.systemLoader,
+      this.campaignsFolder,
+      (file, name, hp, isPC) => {
+        this.combatants.push({
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          name,
+          type: isPC ? "pc" : "npc",
+          init: 0,
+          hp,
+          hpMax: hp,
+          conditions: [],
+          dead: false,
+          filePath: file.path,
+        });
+        this.addLog(`<strong>${name}</strong> added to combat (${hp} HP)`);
+        this.renderCombatants();
+        this.autosave();
+      }
+    ).open();
+  }
+
+  /** Add an NPC combatant from an external source (e.g. NPC generator). */
+  addExternalCombatant(name: string, hp: number, filePath?: string): void {
+    this.combatants.push({
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      name,
+      type: "npc",
+      init: 0,
+      hp,
+      hpMax: hp,
+      conditions: [],
+      dead: false,
+      filePath,
+    });
+    this.addLog(`<strong>${name}</strong> added to combat`);
+    this.renderCombatants();
+    this.autosave();
   }
 
   private rollNpcInitiative(): void {
@@ -204,6 +248,9 @@ export class CombatView extends ItemView {
 
     const rollInitBtn = toolbar.createEl("button", { text: "🎲 Roll NPC init" });
     rollInitBtn.onclick = () => this.rollNpcInitiative();
+
+    const addExistingBtn = toolbar.createEl("button", { text: "+ Add existing" });
+    addExistingBtn.onclick = () => this.openAddExisting();
 
     const saveBtn = toolbar.createEl("button", { text: "Save encounter" });
     saveBtn.onclick = () => this.saveEncounter();

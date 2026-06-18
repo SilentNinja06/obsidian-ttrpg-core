@@ -27,6 +27,14 @@ export interface CurrencyDefinition {
   label: string;
 }
 
+export interface ArchetypeDefinition {
+  id: string;
+  label: string;
+  boost: string[];   // stat keys to raise
+  dump: string[];    // stat keys to lower
+  traits: string[];  // flavor traits to pick from
+}
+
 export interface SystemSchema {
   id: string;
   name: string;
@@ -36,6 +44,7 @@ export interface SystemSchema {
   currency?: CurrencyDefinition[];
   arcFields?: { key: string; label: string }[];
   npcFields?: { key: string; label: string }[];
+  archetypes?: ArchetypeDefinition[];
 }
 
 // ─── Campaign types ──────────────────────────────────────────────────────────
