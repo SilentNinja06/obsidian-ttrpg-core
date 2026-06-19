@@ -22,7 +22,7 @@ An Obsidian plugin for running tabletop RPG campaigns — lore, characters, sess
 
 - Obsidian 1.4.0 or later (desktop)
 - [Dataview](https://github.com/blacksmithgu/obsidian-dataview) community plugin
-- At least one system pack YAML in your vault's `ttrpg/systems/` folder (D&D 5e and WH40k packs are included in this release)
+- (Optional) Custom system packs — D&D 5e and WH40k are bundled and auto-install
 
 ## Installation
 
@@ -34,15 +34,17 @@ An Obsidian plugin for running tabletop RPG campaigns — lore, characters, sess
 4. Install and enable the **Dataview** community plugin.
 5. In Obsidian: Settings, then Community plugins, then enable **TTRPG Campaign Manager**.
 
-### Add the system packs
+That's the whole setup. The **D&D 5e and WH40k system packs install themselves automatically** the first time the plugin loads, so you can create a campaign right away.
 
-The plugin reads game rules from YAML files in `ttrpg/systems/`.
+### System packs
 
-1. In your vault, create the folder `ttrpg/systems/`.
-2. Copy the included `dnd5e.yaml` and/or `wh40k.yaml` into it.
-3. In Obsidian: Settings, then TTRPG Campaign Manager, then **Reload systems**.
+The bundled D&D 5e and WH40k packs are written into `ttrpg/systems/` on first run. To re-add or reset them later, use Settings → TTRPG Campaign Manager → **Starter system packs → Install / restore** (this never overwrites a pack you've customized unless you ask it to).
 
-That's it — open the dashboard from the ribbon or the command palette ("TTRPG: Open dashboard") and create your first campaign.
+The canonical, independently-updatable packs live in their own repos:
+- [obsidian-ttrpg-dnd5e](https://github.com/SilentNinja06/obsidian-ttrpg-dnd5e)
+- [obsidian-ttrpg-wh40k](https://github.com/SilentNinja06/obsidian-ttrpg-wh40k)
+
+Drop a newer or custom `.yaml` into `ttrpg/systems/` and hit **Reload systems** to use it.
 
 ### Using BRAT (auto-updates)
 

@@ -6,6 +6,7 @@ import {
   PluginSettingTab,
   App,
   Setting,
+  normalizePath,
 } from "obsidian";
 
 import { SystemLoader } from "./engine/SystemLoader";
@@ -34,6 +35,7 @@ import { RelationshipMapView, VIEW_TYPE_RELMAP } from "./views/RelationshipMapVi
 import { TimelineView, VIEW_TYPE_TIMELINE } from "./views/TimelineView";
 import { DungeonSketcherView, VIEW_TYPE_DUNGEON } from "./views/DungeonSketcherView";
 import { requireDataview } from "./utils/dataview";
+import { BUNDLED_SYSTEMS } from "./engine/bundledSystems";
 import { DEFAULT_SETTINGS, TTRPGSettings } from "./types";
 
 export default class TTRPGPlugin extends Plugin {
@@ -62,6 +64,9 @@ export default class TTRPGPlugin extends Plugin {
     this.lootManager = new LootManager(this.app, this.campaignManager, this.systemLoader, this.settings.defaultCampaignFolder);
 
     this.app.workspace.onLayoutReady(async () => {
+      // First-run convenience: if the systems folder has no packs yet, install
+      // the bundled D&D 5e and WH40k starter packs so the plugin works out of the box.
+      await this.ensureStarterSystems();
       await this.systemLoader.loadAll(this.settings.systemsFolder);
       await this.campaignManager.loadAll(this.settings.defaultCampaignFolder);
       if (this.settings.activeCampaign) {
@@ -326,6 +331,51 @@ export default class TTRPGPlugin extends Plugin {
     new RecapModal(this.app, generator, label).open();
   }
 
+  /**
+   * First-run helper: if the systems folder contains no system packs yet,
+   * install the bundled starter packs. Non-destructive and silent on later runs.
+   */
+  async ensureStarterSystems(): Promise<void> {
+    const folder = this.settings.systemsFolder;
+    const existing = this.app.vault.getFiles().filter(
+      (f) => f.path.startsWith(folder) && (f.extension === "yaml" || f.extension === "yml")
+    );
+    if (existing.length > 0) return; // user already has systems; don't touch
+    const installed = await this.installBundledSystems(false);
+    if (installed > 0) {
+      new Notice(`Installed ${installed} starter system pack${installed === 1 ? "" : "s"} (D&D 5e, WH40k).`);
+    }
+  }
+
+  /**
+   * Write the bundled system packs into the systems folder.
+   * Non-destructive: never overwrites an existing file unless `overwrite` is true.
+   * Returns the number of packs written.
+   */
+  async installBundledSystems(overwrite: boolean): Promise<number> {
+    const folder = normalizePath(this.settings.systemsFolder);
+    if (!this.app.vault.getFolderByPath(folder)) {
+      await this.app.vault.createFolder(folder).catch(() => {});
+    }
+    let count = 0;
+    for (const pack of BUNDLED_SYSTEMS) {
+      const path = normalizePath(`${folder}/${pack.filename}`);
+      const existing = this.app.vault.getFileByPath(path);
+      if (existing instanceof TFile) {
+        if (!overwrite) continue;
+        await this.app.vault.modify(existing, pack.yaml);
+        count++;
+      } else {
+        await this.app.vault.create(path, pack.yaml);
+        count++;
+      }
+    }
+    if (count > 0) {
+      await this.systemLoader.loadAll(this.settings.systemsFolder);
+    }
+    return count;
+  }
+
   openConditionReference(highlight: string | null = null): void {
     const campaign = this.campaignManager.getActive();
     const schema = campaign ? this.systemLoader.get(campaign.system) : undefined;
@@ -434,6 +484,13 @@ class TTRPGSettingTab extends PluginSettingTab {
   }));
     new Setting(containerEl).setName("Open dashboard on startup").addToggle((t) => t.setValue(this.plugin.settings.sidebarDefaultOpen).onChange(async (v) => { this.plugin.settings.sidebarDefaultOpen = v; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Reload systems").addButton((b) => b.setButtonText("Reload").onClick(async () => { await this.plugin.systemLoader.loadAll(this.plugin.settings.systemsFolder); new Notice("Systems reloaded"); }));
+    new Setting(containerEl)
+      .setName("Starter system packs")
+      .setDesc("Install the bundled D&D 5e and WH40k packs into your systems folder. Won't overwrite files you've customized.")
+      .addButton((b) => b.setButtonText("Install / restore").onClick(async () => {
+        const n = await this.plugin.installBundledSystems(false);
+        new Notice(n > 0 ? `Installed ${n} pack${n === 1 ? "" : "s"}.` : "Packs already present — nothing to add.");
+      }));
 
     // ── Session recap ─────────────────────────────────────────────────────────
     containerEl.createEl("h3", { text: "Session recap" });
