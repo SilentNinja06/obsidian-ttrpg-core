@@ -3,6 +3,7 @@ import type { SystemLoader } from "../engine/SystemLoader";
 import type { LootManager } from "../engine/LootManager";
 import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection } from "../utils/fileIO";
 import { InputModal, promptText } from "../modals/InputModal";
+import { ConditionPickerModal } from "../modals/ConditionPickerModal";
 
 export const VIEW_TYPE_CHARACTER = "ttrpg-character";
 
@@ -83,13 +84,21 @@ export class CharacterView extends ItemView {
     }).style.cssText = "margin:0 0 6px;font-size:13px;color:var(--color-text-secondary)";
 
     const tagsRow = meta.createDiv();
-    tagsRow.style.cssText = "display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px";
+    tagsRow.style.cssText = "display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;align-items:center";
     for (const tag of (fm.tags as string[] ?? [])) {
       this.pill(tagsRow, tag, "#E1F5EE", "#085041");
     }
-    for (const cond of (fm.conditions as string[] ?? [])) {
-      this.pill(tagsRow, cond, "#FAEEDA", "#633806");
+    const curConditions = (fm.conditions as string[] ?? []);
+    for (const cond of curConditions) {
+      const p = this.pill(tagsRow, cond, "#FAEEDA", "#633806");
+      p.style.cursor = "pointer";
+      p.title = "Click to edit conditions";
+      p.onclick = () => this.editConditions(fm, curConditions);
     }
+    // Add/edit conditions affordance
+    const condBtn = tagsRow.createEl("button", { text: curConditions.length ? "edit" : "+ condition" });
+    condBtn.style.cssText = "font-size:11px;padding:2px 8px;border-radius:10px;cursor:pointer;border:0.5px dashed var(--color-border-secondary);background:transparent;color:var(--color-text-tertiary)";
+    condBtn.onclick = () => this.editConditions(fm, curConditions);
 
     // HP strip
     if (hpKey) {
@@ -347,6 +356,26 @@ export class CharacterView extends ItemView {
         name.style.cssText = `flex:1;font-size:13px;cursor:pointer;color:${equipped ? "var(--color-text-primary)" : "var(--color-text-secondary)"};font-weight:${equipped ? "600" : "400"}`;
         name.onclick = (e) => { e.preventDefault(); this.app.workspace.getLeaf(false).openFile(file); };
 
+        // Lifecycle state badge for non-normal states
+        const itemState = (fm["item-state"] as string) || "";
+        if (itemState && itemState !== "held" && itemState !== "unassigned") {
+          const badgeColors: Record<string, [string, string]> = {
+            lost: ["#F0EBE4", "#5C4A2E"],
+            stolen: ["#FCEBEB", "#791F1F"],
+            stashed: ["#E1F5EE", "#085041"],
+            hidden: ["#EEEDFE", "#3C3489"],
+            custom: ["#EEEDFE", "#3C3489"],
+          };
+          const [bbg, bc] = badgeColors[itemState] ?? ["var(--color-background-secondary)", "var(--color-text-secondary)"];
+          const badge = row.createSpan({ text: itemState });
+          badge.style.cssText = `font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;background:${bbg};color:${bc}`;
+        }
+        // Damaged badge — independent, can appear with any state
+        if (fm.damaged) {
+          const dmgBadge = row.createSpan({ text: "damaged" });
+          dmgBadge.style.cssText = "font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;background:#FAEEDA;color:#633806";
+        }
+
         const qtyEl = row.createSpan({ text: `×${qty}` });
         qtyEl.style.cssText = "font-size:12px;color:var(--color-text-tertiary);cursor:pointer";
         qtyEl.title = "Click to change quantity";
@@ -426,8 +455,25 @@ export class CharacterView extends ItemView {
     });
   }
 
-  private pill(parent: HTMLElement, text: string, bg: string, color: string): void {
+  private pill(parent: HTMLElement, text: string, bg: string, color: string): HTMLElement {
     const span = parent.createSpan({ text });
     span.style.cssText = `font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500;background:${bg};color:${color}`;
+    return span;
+  }
+
+  private editConditions(fm: Record<string, unknown>, current: string[]): void {
+    const system = this.systemLoader.get(fm.system as string);
+    const conditions = system?.conditions ?? [];
+    new ConditionPickerModal(
+      this.app,
+      conditions,
+      current,
+      this.file?.basename ?? "Character",
+      async (selected) => {
+        fm.conditions = selected;
+        if (this.file) await writeFrontmatterKey(this.app, this.file, "conditions", selected);
+        await this.render();
+      }
+    ).open();
   }
 }

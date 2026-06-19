@@ -5,6 +5,7 @@ import type { CombatStore } from "../engine/CombatStore";
 import type { CampaignManager } from "../engine/CampaignManager";
 import type { SystemLoader } from "../engine/SystemLoader";
 import { AddExistingModal } from "../modals/AddExistingModal";
+import { ConditionPickerModal } from "../modals/ConditionPickerModal";
 import { TFile, stringifyYaml } from "obsidian";
 import { writeFrontmatterKey, readNote, writeSection } from "../utils/fileIO";
 
@@ -228,10 +229,51 @@ export class CombatView extends ItemView {
     }
   }
 
+  private injectStyles(container: HTMLElement): void {
+    if (container.querySelector("style[data-ttrpg-combat]")) return;
+    const style = container.createEl("style");
+    style.setAttribute("data-ttrpg-combat", "1");
+    style.textContent = `
+      .ttrpg-combat { padding: 1rem; overflow-y: auto; font-family: var(--font-interface); }
+      .ttrpg-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+      .ttrpg-toolbar button { font-size: 12px; padding: 4px 10px; }
+      .ttrpg-round-badge { font-size: 13px; font-weight: 600; padding: 4px 10px; background: var(--color-background-secondary); border-radius: 8px; margin-right: 4px; }
+      .ttrpg-dice-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+      .ttrpg-dice-btn { font-size: 12px; padding: 3px 9px; }
+      .ttrpg-dice-result { font-size: 15px; font-weight: 700; color: var(--text-accent); min-width: 22px; text-align: center; }
+      .ttrpg-muted { color: var(--text-muted); font-size: 12px; }
+      .ttrpg-paste-banner { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin-bottom: 10px; background: var(--color-background-info, var(--background-secondary)); border: 0.5px solid var(--background-modifier-border); border-radius: 8px; font-size: 12px; }
+      .ttrpg-combatant-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+      .ttrpg-combatant { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 0.5px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); }
+      .ttrpg-combatant.active { border-color: var(--interactive-accent); box-shadow: 0 0 0 1px var(--interactive-accent); }
+      .ttrpg-combatant.dead { opacity: 0.55; }
+      .ttrpg-row-header { display: flex; align-items: center; gap: 10px; }
+      .ttrpg-name-block { flex: 1 1 auto; min-width: 0; }
+      .ttrpg-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .ttrpg-init-edit { width: 42px; font-size: 14px; padding: 4px 5px; text-align: center; flex: 0 0 auto; }
+      .ttrpg-menu-btn { font-size: 16px; padding: 2px 8px; background: none; flex: 0 0 auto; margin-left: auto; }
+      .ttrpg-hp-block { display: flex; flex-direction: column; gap: 5px; }
+      .ttrpg-hp-bar-wrap { height: 7px; background: var(--background-secondary); border-radius: 4px; overflow: hidden; border: 0.5px solid var(--background-modifier-border); }
+      .ttrpg-hp-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }
+      .ttrpg-hp-text { font-size: 12px; }
+      .ttrpg-hp-controls { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+      .ttrpg-hp-input { width: 52px; font-size: 13px; padding: 3px 5px; text-align: center; }
+      .ttrpg-hp-input.dice-ready { border-color: var(--interactive-accent); box-shadow: 0 0 0 1px var(--interactive-accent); }
+      .ttrpg-dmg-btn { font-size: 12px; padding: 3px 8px; color: var(--color-red, #c0392b); }
+      .ttrpg-heal-btn { font-size: 12px; padding: 3px 8px; color: var(--color-green, #27875a); }
+      .ttrpg-init-edit { width: 46px; font-size: 13px; padding: 3px 5px; text-align: center; }
+      .ttrpg-menu-btn { font-size: 16px; padding: 2px 8px; background: none; }
+      .ttrpg-combat-log { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: var(--background-secondary); border-radius: 8px; }
+      .ttrpg-log-entry { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+      .ttrpg-log-entry strong { color: var(--text-normal); font-weight: 600; }
+    `;
+  }
+
   render(): void {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("ttrpg-combat");
+    this.injectStyles(container);
 
     // Toolbar
     const toolbar = container.createDiv("ttrpg-toolbar");
@@ -248,6 +290,12 @@ export class CombatView extends ItemView {
 
     const rollInitBtn = toolbar.createEl("button", { text: "🎲 Roll NPC init" });
     rollInitBtn.onclick = () => this.rollNpcInitiative();
+
+    const condRefBtn = toolbar.createEl("button", { text: "📖 Conditions" });
+    condRefBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openConditionReference) plugin.openConditionReference();
+    };
 
     const addExistingBtn = toolbar.createEl("button", { text: "+ Add existing" });
     addExistingBtn.onclick = () => this.openAddExisting();
@@ -294,7 +342,8 @@ export class CombatView extends ItemView {
     container.createEl("h3", { text: "Combat log" });
     const logEl = container.createDiv("ttrpg-combat-log");
     for (const entry of this.log) {
-      logEl.createEl("div", { cls: "ttrpg-log-entry", text: entry });
+      const div = logEl.createEl("div", { cls: "ttrpg-log-entry" });
+      div.innerHTML = entry;
     }
 
     // Store refs for rollDice to use
@@ -318,23 +367,54 @@ export class CombatView extends ItemView {
       const pct = Math.max(0, Math.round((c.hp / c.hpMax) * 100));
       const row = listEl.createDiv("ttrpg-combatant" + (isActive ? " active" : "") + (c.dead ? " dead" : ""));
 
-      // Initiative
-      row.createSpan({ text: String(c.init), cls: "ttrpg-init-num" });
+      // ── Header line: init edit · name · type pill · menu ──
+      const headerLine = row.createDiv("ttrpg-row-header");
 
-      // Name block
-      const nameBlock = row.createDiv("ttrpg-name-block");
+      // Initiative (editable)
+      const initEdit = headerLine.createEl("input", { cls: "ttrpg-init-edit" });
+      initEdit.type = "number";
+      initEdit.value = c.init === 0 ? "" : String(c.init);
+      initEdit.placeholder = "0";
+      initEdit.title = "Initiative";
+      initEdit.onchange = () => {
+        c.init = parseInt(initEdit.value) || 0;
+        this.renderCombatants();
+        this.autosave();
+      };
+
+      // Name + type pill
+      const nameBlock = headerLine.createDiv("ttrpg-name-block");
       const nameRow = nameBlock.createDiv("ttrpg-name-row");
-      nameRow.createSpan({ text: c.name, cls: "ttrpg-cname" });
-      nameRow.createSpan({ text: c.type.toUpperCase(), cls: `ttrpg-tag ttrpg-tag-${c.type}` });
-      if (c.dead) nameRow.createSpan({ text: "KO", cls: "ttrpg-tag ttrpg-tag-dead" });
+      const nameEl = nameRow.createSpan({ text: c.name });
+      nameEl.style.cssText = "font-size:14px;font-weight:600;color:var(--text-normal);overflow-wrap:anywhere;line-height:1.25";
+      const typePill = nameRow.createSpan({ text: c.type.toUpperCase() });
+      typePill.style.cssText = `font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;white-space:nowrap;background:${c.type === "pc" ? "#E1ECF7" : "#F7E9E1"};color:${c.type === "pc" ? "#1A4971" : "#71391A"}`;
+      if (c.dead) {
+        const koPill = nameRow.createSpan({ text: "KO" });
+        koPill.style.cssText = "font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;white-space:nowrap;background:#FCEBEB;color:#791F1F";
+      }
+
+      // Menu (far right of header)
+      const menuBtn = headerLine.createEl("button", { text: "⋮", cls: "ttrpg-menu-btn" });
+      menuBtn.onclick = () => this.openConditionMenu(c);
+
+      // Conditions (under the name)
       if (c.conditions.length) {
         const condRow = nameBlock.createDiv("ttrpg-cond-row");
+        condRow.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:3px";
         for (const cond of c.conditions) {
-          condRow.createSpan({ text: cond, cls: "ttrpg-tag ttrpg-tag-condition" });
+          const pill = condRow.createSpan({ text: cond });
+          pill.style.cssText = "font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500;background:#FAEEDA;color:#633806;cursor:pointer";
+          pill.title = `What does "${cond}" do? (click)`;
+          pill.onclick = (e) => {
+            e.stopPropagation();
+            const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+            if (plugin?.openConditionReference) plugin.openConditionReference(cond);
+          };
         }
       }
 
-      // HP block
+      // ── Body line: HP bar + text + controls ──
       const hpBlock = row.createDiv("ttrpg-hp-block");
       const barWrap = hpBlock.createDiv("ttrpg-hp-bar-wrap");
       const bar = barWrap.createDiv("ttrpg-hp-bar");
@@ -371,19 +451,6 @@ export class CombatView extends ItemView {
 
       const healBtn = controls.createEl("button", { text: "+Heal", cls: "ttrpg-heal-btn" });
       healBtn.onclick = () => this.applyHp(c.id, 1, input);
-
-      // Initiative edit
-      const initEdit = row.createEl("input", { cls: "ttrpg-init-edit" });
-      initEdit.type = "number";
-      initEdit.value = String(c.init);
-      initEdit.onchange = () => {
-        c.init = parseInt(initEdit.value) || 0;
-        this.renderCombatants();
-      };
-
-      // Menu
-      const menuBtn = row.createEl("button", { text: "⋮", cls: "ttrpg-menu-btn" });
-      menuBtn.onclick = () => this.openConditionMenu(c);
     });
   }
 
@@ -515,20 +582,15 @@ export class CombatView extends ItemView {
   }
 
   private openConditionMenu(c: Combatant): void {
-    new InputModal(
+    const campaign = this.campaignManager.getActive();
+    const conditions = campaign ? (this.systemLoader.get(campaign.system)?.conditions ?? []) : [];
+    new ConditionPickerModal(
       this.app,
-      `Conditions for ${c.name}`,
-      [
-        {
-          key: "conditions",
-          label: "Comma-separated (blank = clear)",
-          type: "text",
-          default: c.conditions.join(", "),
-        },
-      ],
-      (vals) => {
-        if (!vals) return;
-        c.conditions = String(vals.conditions).split(",").map((s) => s.trim()).filter(Boolean);
+      conditions,
+      c.conditions,
+      c.name,
+      (selected) => {
+        c.conditions = selected;
         this.addLog(`<strong>${c.name}</strong> conditions: ${c.conditions.join(", ") || "none"}`);
         this.renderCombatants();
         this.autosave();

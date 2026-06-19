@@ -1,6 +1,9 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
+import type { LootManager } from "../engine/LootManager";
+import type { SystemLoader } from "../engine/SystemLoader";
 import { readNote, writeFrontmatterKey, writeNoteSection, readSection } from "../utils/fileIO";
 import { collectBacklinks } from "../utils/queries";
+import { promptText, confirmAction } from "../modals/InputModal";
 
 export const VIEW_TYPE_LORE = "ttrpg-lore";
 
@@ -26,6 +29,10 @@ const CORE_FIELDS: Record<string, { key: string; label: string }[]> = {
     { key: "parties-involved", label: "Parties involved" },
     { key: "outcome", label: "Outcome" },
   ],
+  item: [
+    { key: "rarity", label: "Rarity" },
+    { key: "attunement", label: "Attunement" },
+  ],
 };
 
 const STATUS_OPTIONS = ["active", "unknown", "destroyed", "hidden"];
@@ -38,6 +45,14 @@ const STATUS_COLORS: Record<string, [string, string]> = {
 
 export class LoreView extends ItemView {
   file: TFile | null = null;
+  private lootManager: LootManager | null;
+  private systemLoader: SystemLoader | null;
+
+  constructor(leaf: WorkspaceLeaf, lootManager?: LootManager, systemLoader?: SystemLoader) {
+    super(leaf);
+    this.lootManager = lootManager ?? null;
+    this.systemLoader = systemLoader ?? null;
+  }
 
   getViewType(): string { return VIEW_TYPE_LORE; }
   getDisplayText(): string { return this.file?.basename ?? "Lore"; }
@@ -110,20 +125,24 @@ export class LoreView extends ItemView {
 
     // Details (left)
     this.section(left, "Details", (b) => {
-      // Status selector
-      const statusRow = b.createDiv();
-      statusRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px";
-      statusRow.createSpan({ text: "Status:" }).style.cssText = "font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em";
-      for (const opt of STATUS_OPTIONS) {
-        const btn = statusRow.createEl("button", { text: opt });
-        const isSel = opt === status;
-        const [bg, c] = STATUS_COLORS[opt];
-        btn.style.cssText = `font-size:12px;padding:3px 10px;border-radius:10px;cursor:pointer;font-family:var(--font-sans);border:0.5px solid var(--color-border-secondary);background:${isSel ? bg : "transparent"};color:${isSel ? c : "var(--color-text-secondary)"}`;
-        btn.onclick = async () => {
-          fm.status = opt;
-          if (this.file) await writeFrontmatterKey(this.app, this.file, "status", opt);
-          await this.render();
-        };
+      if (type === "item") {
+        this.renderItemLifecycle(b, fm);
+      } else {
+        // Lore status selector (location/faction/history only)
+        const statusRow = b.createDiv();
+        statusRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px";
+        statusRow.createSpan({ text: "Status:" }).style.cssText = "font-size:11px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em";
+        for (const opt of STATUS_OPTIONS) {
+          const btn = statusRow.createEl("button", { text: opt });
+          const isSel = opt === status;
+          const [bg, c] = STATUS_COLORS[opt];
+          btn.style.cssText = `font-size:12px;padding:3px 10px;border-radius:10px;cursor:pointer;font-family:var(--font-sans);border:0.5px solid var(--color-border-secondary);background:${isSel ? bg : "transparent"};color:${isSel ? c : "var(--color-text-secondary)"}`;
+          btn.onclick = async () => {
+            fm.status = opt;
+            if (this.file) await writeFrontmatterKey(this.app, this.file, "status", opt);
+            await this.render();
+          };
+        }
       }
 
       // Editable fields
@@ -214,6 +233,136 @@ export class LoreView extends ItemView {
       }
       b.createEl("p", { text: "Connections appear automatically when other notes link here with [[wikilinks]]." }).style.cssText = "font-size:11px;color:var(--color-text-tertiary);margin-top:8px;font-style:italic";
     });
+  }
+
+  private async changeItemState(state: string, extra: { location?: string; stolenBy?: string; note?: string } = {}): Promise<void> {
+    if (!this.file || !this.lootManager) return;
+    await this.lootManager.setItemState(this.file, state, extra);
+    await this.render();
+  }
+
+  private renderItemLifecycle(b: HTMLElement, fm: Record<string, unknown>): void {
+    const ITEM_STATES = ["hidden", "unassigned", "held", "stashed", "lost", "stolen", "destroyed", "custom"];
+    const STATE_COLORS: Record<string, [string, string]> = {
+      hidden: ["#EEEDFE", "#3C3489"],
+      unassigned: ["#F0EBE4", "#5C4A2E"],
+      held: ["#E1ECF7", "#1A4971"],
+      stashed: ["#E1F5EE", "#085041"],
+      lost: ["#F0EBE4", "#5C4A2E"],
+      stolen: ["#FCEBEB", "#791F1F"],
+      destroyed: ["#FCEBEB", "#791F1F"],
+      custom: ["#EEEDFE", "#3C3489"],
+    };
+
+    // Migrate legacy item-state "damaged" → damaged flag + normal state
+    if ((fm["item-state"] as string) === "damaged") {
+      fm.damaged = true;
+      fm["item-state"] = fm["held-by"] ? "held" : "unassigned";
+      if (this.file) {
+        this.lootManager?.setDamaged(this.file, true);
+      }
+    }
+
+    const state = (fm["item-state"] as string) || (fm["held-by"] ? "held" : "unassigned");
+    const heldBy = (fm["held-by"] as string) || "";
+
+    // Held-by line
+    const heldLine = b.createDiv();
+    heldLine.style.cssText = "font-size:13px;color:var(--color-text-primary);margin-bottom:8px";
+    heldLine.createSpan({ text: "Held by: " }).style.cssText = "color:var(--color-text-tertiary);font-weight:600";
+    heldLine.createSpan({ text: heldBy || "—" });
+
+    // State label
+    b.createDiv({ text: "Lifecycle state" }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px";
+
+    const stateRow = b.createDiv();
+    stateRow.style.cssText = "display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px";
+    const permanent = state === "destroyed";
+    for (const opt of ITEM_STATES) {
+      const isSel = opt === state;
+      const [bg, c] = STATE_COLORS[opt];
+      const btn = stateRow.createEl("button", { text: opt });
+      btn.style.cssText = `font-size:12px;padding:3px 9px;border-radius:10px;cursor:${permanent ? "not-allowed" : "pointer"};border:0.5px solid var(--color-border-secondary);background:${isSel ? bg : "transparent"};color:${isSel ? c : "var(--color-text-secondary)"};opacity:${permanent && !isSel ? "0.4" : "1"}`;
+      if (permanent && !isSel) { btn.disabled = true; }
+      btn.onclick = async () => {
+        if (permanent) return;
+        if (opt === "stashed") {
+          const loc = await promptText(this.app, "Stash location", "Where is it stashed?", (fm["stash-location"] as string) || "");
+          await this.changeItemState("stashed", { location: loc ?? "" });
+        } else if (opt === "stolen") {
+          const who = await promptText(this.app, "Stolen by", "Who stole it? (optional)", (fm["stolen-by"] as string) || "");
+          await this.changeItemState("stolen", { stolenBy: who ?? "" });
+        } else if (opt === "custom") {
+          const note = await promptText(this.app, "Custom state", "Describe the state:", (fm["state-note"] as string) || "");
+          await this.changeItemState("custom", { note: note ?? "" });
+        } else if (opt === "destroyed") {
+          const held = (fm["held-by"] as string) || "";
+          const msg = held
+            ? `Destroy "${this.file?.basename}"? This is permanent — it will be removed from ${held}'s inventory and can't be recovered or reassigned.`
+            : `Destroy "${this.file?.basename}"? This is permanent and can't be recovered or reassigned.`;
+          const ok = await confirmAction(this.app, "Destroy item", msg, "Destroy", true);
+          if (ok) await this.changeItemState("destroyed");
+        } else {
+          await this.changeItemState(opt);
+        }
+      };
+    }
+
+    // Extra info for current state
+    if (state === "stashed" && fm["stash-location"]) {
+      this.infoLine(b, "Location", String(fm["stash-location"]));
+    }
+    if (state === "stolen" && fm["stolen-by"]) {
+      this.infoLine(b, "Stolen by", String(fm["stolen-by"]));
+    }
+    if (state === "custom" && fm["state-note"]) {
+      this.infoLine(b, "Note", String(fm["state-note"]));
+    }
+
+    // Damaged flag (independent of lifecycle state) + Recover / Repair actions
+    const damaged = !!fm.damaged;
+    const isDestroyed = state === "destroyed";
+
+    // Damaged indicator line
+    if (damaged && !isDestroyed) {
+      this.infoLine(b, "Condition", "Damaged");
+    }
+
+    const actionRow = b.createDiv();
+    actionRow.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin:8px 0";
+
+    if (state === "stolen" || state === "lost" || state === "stashed") {
+      const recover = actionRow.createEl("button", { text: "↩ Recover" });
+      recover.style.cssText = "font-size:12px;padding:4px 10px";
+      recover.onclick = async () => { if (this.lootManager && this.file) { await this.lootManager.recoverItem(this.file); await this.render(); } };
+    }
+
+    // Damage/Repair toggle — works on top of any non-destroyed lifecycle state
+    if (!isDestroyed) {
+      if (damaged) {
+        const repair = actionRow.createEl("button", { text: "🔧 Repair" });
+        repair.style.cssText = "font-size:12px;padding:4px 10px";
+        repair.onclick = async () => { if (this.lootManager && this.file) { await this.lootManager.repairItem(this.file); await this.render(); } };
+      } else {
+        const damage = actionRow.createEl("button", { text: "🔨 Mark damaged" });
+        damage.style.cssText = "font-size:12px;padding:4px 10px";
+        damage.onclick = async () => { if (this.lootManager && this.file) { await this.lootManager.setDamaged(this.file, true); await this.render(); } };
+      }
+    }
+
+    if (isDestroyed) {
+      actionRow.createEl("span", { text: "Destroyed — permanent." }).style.cssText = "font-size:12px;color:var(--color-text-danger);font-style:italic";
+    }
+
+    b.createEl("p", { text: "Equip/carry is managed from the character sheet's Inventory." })
+      .style.cssText = "font-size:11px;color:var(--color-text-tertiary);font-style:italic;margin:4px 0 0";
+  }
+
+  private infoLine(b: HTMLElement, label: string, value: string): void {
+    const line = b.createDiv();
+    line.style.cssText = "font-size:13px;color:var(--color-text-primary);margin-bottom:4px";
+    line.createSpan({ text: `${label}: ` }).style.cssText = "color:var(--color-text-tertiary);font-weight:600";
+    line.createSpan({ text: value });
   }
 
   private section(parent: HTMLElement, title: string, builder: (body: HTMLElement) => void): void {

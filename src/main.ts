@@ -18,6 +18,7 @@ import { QuickSearchModal } from "./modals/QuickSearchModal";
 import { NpcGenerator } from "./engine/NpcGenerator";
 import { NpcGeneratorModal } from "./modals/NpcGeneratorModal";
 import { BatchNpcModal } from "./modals/BatchNpcModal";
+import { ConditionReferenceModal } from "./modals/ConditionReferenceModal";
 import { LootManager } from "./engine/LootManager";
 import { LootDistributionView, VIEW_TYPE_LOOT } from "./views/LootDistributionView";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
@@ -92,7 +93,7 @@ export default class TTRPGPlugin extends Plugin {
     ));
     this.registerView(VIEW_TYPE_CHARACTER, (leaf) => new CharacterView(leaf, this.systemLoader, this.lootManager));
     this.registerView(VIEW_TYPE_SESSION, (leaf) => new SessionNoteView(leaf));
-    this.registerView(VIEW_TYPE_LORE, (leaf) => new LoreView(leaf));
+    this.registerView(VIEW_TYPE_LORE, (leaf) => new LoreView(leaf, this.lootManager, this.systemLoader));
     this.registerView(VIEW_TYPE_PREP, (leaf) => new PrepView(
       leaf,
       this.campaignManager,
@@ -131,6 +132,7 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "open-timeline", name: "Open timeline", callback: () => this.activateViewMain(VIEW_TYPE_TIMELINE) });
     this.addCommand({ id: "generate-npc", name: "Generate NPC", callback: () => this.openNpcGenerator() });
     this.addCommand({ id: "generate-npc-batch", name: "Generate NPC batch", callback: () => this.openBatchGenerator() });
+    this.addCommand({ id: "condition-reference", name: "Condition reference", callback: () => this.openConditionReference() });
     this.addCommand({ id: "open-loot", name: "Open loot distribution", callback: () => this.activateViewMain(VIEW_TYPE_LOOT) });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
@@ -303,6 +305,14 @@ export default class TTRPGPlugin extends Plugin {
       this.settings.defaultCampaignFolder,
       (id) => this.switchCampaign(id)
     ).open();
+  }
+
+  openConditionReference(highlight: string | null = null): void {
+    const campaign = this.campaignManager.getActive();
+    const schema = campaign ? this.systemLoader.get(campaign.system) : undefined;
+    const conditions = schema?.conditions ?? [];
+    const systemName = schema?.name ?? "Generic";
+    new ConditionReferenceModal(this.app, conditions, systemName, highlight).open();
   }
 
   openQuickSearch(): void {

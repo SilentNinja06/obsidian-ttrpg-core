@@ -121,3 +121,72 @@ export function promptText(
     }).open();
   });
 }
+
+/**
+ * A simple confirmation dialog. Resolves true if confirmed, false otherwise.
+ * Replaces window.confirm() which doesn't work in Obsidian's Electron renderer.
+ */
+export function confirmAction(
+  app: App,
+  title: string,
+  message: string,
+  confirmLabel = "Confirm",
+  danger = false
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const modal = new ConfirmModal(app, title, message, confirmLabel, danger, resolve);
+    modal.open();
+  });
+}
+
+class ConfirmModal extends Modal {
+  private title: string;
+  private message: string;
+  private confirmLabel: string;
+  private danger: boolean;
+  private resolve: (v: boolean) => void;
+  private settled = false;
+
+  constructor(app: App, title: string, message: string, confirmLabel: string, danger: boolean, resolve: (v: boolean) => void) {
+    super(app);
+    this.title = title;
+    this.message = message;
+    this.confirmLabel = confirmLabel;
+    this.danger = danger;
+    this.resolve = resolve;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: this.title });
+    contentEl.createEl("p", { text: this.message }).style.cssText = "font-size:13px;color:var(--text-muted);line-height:1.5";
+
+    const btnRow = contentEl.createDiv();
+    btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
+    const cancel = btnRow.createEl("button", { text: "Cancel" });
+    cancel.onclick = () => this.finish(false);
+    const confirm = btnRow.createEl("button", { text: this.confirmLabel });
+    confirm.style.cssText = this.danger
+      ? "background:var(--background-modifier-error);color:var(--text-on-accent)"
+      : "";
+    if (!this.danger) confirm.addClass("mod-cta");
+    confirm.onclick = () => this.finish(true);
+    setTimeout(() => confirm.focus(), 50);
+  }
+
+  private finish(result: boolean): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.resolve(result);
+    this.close();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.settled) {
+      this.settled = true;
+      this.resolve(false);
+    }
+  }
+}

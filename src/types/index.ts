@@ -27,6 +27,12 @@ export interface CurrencyDefinition {
   label: string;
 }
 
+export interface ConditionDefinition {
+  name: string;
+  effect: string;
+  duration?: string;
+}
+
 export interface ArchetypeDefinition {
   id: string;
   label: string;
@@ -45,6 +51,7 @@ export interface SystemSchema {
   arcFields?: { key: string; label: string }[];
   npcFields?: { key: string; label: string }[];
   archetypes?: ArchetypeDefinition[];
+  conditions?: ConditionDefinition[];
 }
 
 // ─── Campaign types ──────────────────────────────────────────────────────────
