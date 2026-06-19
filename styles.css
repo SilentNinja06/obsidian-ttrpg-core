@@ -1,0 +1,6 @@
+/*
+ * TTRPG Campaign Manager
+ * Most styling is applied inline or injected at runtime by individual views
+ * (see CombatView.injectStyles). This file is intentionally minimal and exists
+ * for Obsidian's plugin release conventions.
+ */

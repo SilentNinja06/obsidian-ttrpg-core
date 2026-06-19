@@ -1,6 +1,6 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type { Combatant } from "../types";
-import { InputModal, promptText } from "../modals/InputModal";
+import { InputModal, promptText, confirmAction } from "../modals/InputModal";
 import type { CombatStore } from "../engine/CombatStore";
 import type { CampaignManager } from "../engine/CampaignManager";
 import type { SystemLoader } from "../engine/SystemLoader";
@@ -170,6 +170,20 @@ export class CombatView extends ItemView {
   }
 
   private async clearCombat(): Promise<void> {
+    // Only confirm if there's a meaningful encounter to lose (NPCs added,
+    // rounds advanced, or any HP/condition changes mid-fight).
+    const hasNpcs = this.combatants.some((c) => c.type === "npc");
+    const inProgress = this.round > 1 || this.activeIdx > 0;
+    if (hasNpcs || inProgress) {
+      const ok = await confirmAction(
+        this.app,
+        "Clear combat",
+        "Clear the current encounter? This removes all combatants and resets to your party at full strength. Saved encounters aren't affected.",
+        "Clear",
+        true
+      );
+      if (!ok) return;
+    }
     const pcs = await this.store.loadPartyPCs(this.campaignFolder(), this.hpKeys());
     this.combatants = pcs;
     this.round = 1;

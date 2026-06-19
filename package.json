@@ -1,7 +1,7 @@
 {
   "name": "obsidian-ttrpg-core",
-  "version": "1.0.0",
-  "description": "TTRPG campaign manager for Obsidian — core plugin",
+  "version": "2.0.0",
+  "description": "TTRPG campaign manager for Obsidian \u2014 core plugin",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

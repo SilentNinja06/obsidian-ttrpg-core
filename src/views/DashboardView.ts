@@ -171,6 +171,13 @@ export class DashboardView extends ItemView {
       if (plugin?.openRecap) plugin.openRecap();
     };
 
+    const dungeonBtn = prepRow.createEl("button", { text: "🗺️ Dungeon map" });
+    dungeonBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-dungeon", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
     const popoutBtn = prepRow.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => {
       this.app.workspace.moveLeafToPopout(this.leaf);

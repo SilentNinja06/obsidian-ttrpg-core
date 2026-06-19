@@ -3,6 +3,8 @@ import type { LootManager } from "../engine/LootManager";
 import type { SystemLoader } from "../engine/SystemLoader";
 import { readNote, writeFrontmatterKey, writeNoteSection, readSection } from "../utils/fileIO";
 import { collectBacklinks } from "../utils/queries";
+import { RelationshipPickerModal } from "../modals/RelationshipPickerModal";
+import { parseRelationship, formatRelationship, resolveByName, addReciprocal, inverseLabel } from "../utils/relationships";
 import { promptText, confirmAction } from "../modals/InputModal";
 
 export const VIEW_TYPE_LORE = "ttrpg-lore";
@@ -233,6 +235,64 @@ export class LoreView extends ItemView {
       }
       b.createEl("p", { text: "Connections appear automatically when other notes link here with [[wikilinks]]." }).style.cssText = "font-size:11px;color:var(--color-text-tertiary);margin-top:8px;font-style:italic";
     });
+
+    // Relationships (right) — editable structured links (not for items)
+    if (type !== "item") {
+      this.section(right, "Relationships", (b) => {
+        const rels = (fm.relationships as string[] ?? []);
+        if (rels.length === 0) {
+          b.createEl("p", { text: "No relationships yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
+        }
+        for (const rel of rels) {
+          const parsed = parseRelationship(rel);
+          const row = b.createDiv();
+          row.style.cssText = "display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:0.5px solid var(--color-border-tertiary)";
+          const name = row.createEl("a", { text: parsed.target });
+          name.style.cssText = "flex:1;font-size:13px;color:#185FA5;cursor:pointer";
+          name.onclick = (e) => {
+            e.preventDefault();
+            const f = resolveByName(this.app, parsed.target, this.campaignRoot());
+            if (f) this.app.workspace.getLeaf(false).openFile(f);
+          };
+          if (parsed.label) {
+            const badge = row.createSpan({ text: parsed.label });
+            badge.style.cssText = "font-size:10px;padding:1px 7px;border-radius:8px;font-weight:600;background:#E1ECF7;color:#1A4971";
+          }
+          const del = row.createEl("button", { text: "✕" });
+          del.style.cssText = "font-size:11px;padding:1px 6px;color:var(--color-text-tertiary);background:none";
+          del.title = "Remove";
+          del.onclick = async () => {
+            if (!this.file) return;
+            const newRels = rels.filter((r) => r !== rel);
+            fm.relationships = newRels;
+            await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
+            await this.render();
+          };
+        }
+        const addBtn = b.createEl("button", { text: "+ Add relationship" });
+        addBtn.style.cssText = "font-size:12px;padding:4px 10px;margin-top:8px";
+        addBtn.onclick = () => {
+          if (!this.file) return;
+          new RelationshipPickerModal(this.app, this.campaignRoot(), this.file.basename, async (target, label, reciprocal) => {
+            const entry = formatRelationship(target, label);
+            const newRels = [...rels, entry];
+            fm.relationships = newRels;
+            if (this.file) await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
+            if (reciprocal) {
+              const targetFile = resolveByName(this.app, target, this.campaignRoot());
+              if (targetFile) await addReciprocal(this.app, targetFile, this.file!.basename, inverseLabel(label));
+            }
+            await this.render();
+          }).open();
+        };
+      });
+    }
+  }
+
+  private campaignRoot(): string {
+    const path = this.file?.path ?? "";
+    const m = path.match(/^(.*\/campaigns\/[^/]+)\//);
+    return m ? m[1] : "";
   }
 
   private async changeItemState(state: string, extra: { location?: string; stolenBy?: string; note?: string } = {}): Promise<void> {

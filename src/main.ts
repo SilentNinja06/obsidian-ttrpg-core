@@ -32,6 +32,7 @@ import { LoreView, VIEW_TYPE_LORE } from "./views/LoreView";
 import { PrepView, VIEW_TYPE_PREP } from "./views/PrepView";
 import { RelationshipMapView, VIEW_TYPE_RELMAP } from "./views/RelationshipMapView";
 import { TimelineView, VIEW_TYPE_TIMELINE } from "./views/TimelineView";
+import { DungeonSketcherView, VIEW_TYPE_DUNGEON } from "./views/DungeonSketcherView";
 import { requireDataview } from "./utils/dataview";
 import { DEFAULT_SETTINGS, TTRPGSettings } from "./types";
 
@@ -113,6 +114,11 @@ export default class TTRPGPlugin extends Plugin {
       this.campaignManager,
       this.settings.defaultCampaignFolder
     ));
+    this.registerView(VIEW_TYPE_DUNGEON, (leaf) => new DungeonSketcherView(
+      leaf,
+      this.campaignManager,
+      this.settings.defaultCampaignFolder
+    ));
     this.registerView(VIEW_TYPE_LOOT, (leaf) => new LootDistributionView(
       leaf,
       this.campaignManager,
@@ -133,6 +139,7 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "open-prep", name: "Open session prep", callback: () => this.activateView(VIEW_TYPE_PREP) });
     this.addCommand({ id: "open-relmap", name: "Open relationship map", callback: () => this.activateViewMain(VIEW_TYPE_RELMAP) });
     this.addCommand({ id: "open-timeline", name: "Open timeline", callback: () => this.activateViewMain(VIEW_TYPE_TIMELINE) });
+    this.addCommand({ id: "open-dungeon", name: "Open dungeon sketcher", callback: () => this.activateViewMain(VIEW_TYPE_DUNGEON) });
     this.addCommand({ id: "generate-npc", name: "Generate NPC", callback: () => this.openNpcGenerator() });
     this.addCommand({ id: "generate-npc-batch", name: "Generate NPC batch", callback: () => this.openBatchGenerator() });
     this.addCommand({ id: "condition-reference", name: "Condition reference", callback: () => this.openConditionReference() });

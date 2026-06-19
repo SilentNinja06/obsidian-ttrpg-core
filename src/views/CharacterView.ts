@@ -4,6 +4,8 @@ import type { LootManager } from "../engine/LootManager";
 import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection } from "../utils/fileIO";
 import { InputModal, promptText } from "../modals/InputModal";
 import { ConditionPickerModal } from "../modals/ConditionPickerModal";
+import { RelationshipPickerModal } from "../modals/RelationshipPickerModal";
+import { parseRelationship, formatRelationship, resolveByName, addReciprocal, inverseLabel } from "../utils/relationships";
 
 export const VIEW_TYPE_CHARACTER = "ttrpg-character";
 
@@ -296,27 +298,59 @@ export class CharacterView extends ItemView {
         b.createEl("p", { text: "No relationships yet." }).style.cssText = "font-size:13px;color:var(--color-text-tertiary)";
       }
       for (const rel of rels) {
+        const parsed = parseRelationship(rel);
         const row = b.createDiv();
-        row.style.cssText = "font-size:13px;color:var(--color-text-primary);padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary)";
-        row.textContent = rel;
+        row.style.cssText = "display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:0.5px solid var(--color-border-tertiary)";
+
+        const name = row.createEl("a", { text: parsed.target });
+        name.style.cssText = "flex:1;font-size:13px;color:#185FA5;cursor:pointer";
+        name.onclick = (e) => {
+          e.preventDefault();
+          const f = resolveByName(this.app, parsed.target, this.campaignRoot());
+          if (f) this.app.workspace.getLeaf(false).openFile(f);
+        };
+
+        if (parsed.label) {
+          const badge = row.createSpan({ text: parsed.label });
+          badge.style.cssText = "font-size:10px;padding:1px 7px;border-radius:8px;font-weight:600;background:#E1ECF7;color:#1A4971";
+        }
+
+        const del = row.createEl("button", { text: "✕" });
+        del.style.cssText = "font-size:11px;padding:1px 6px;color:var(--color-text-tertiary);background:none";
+        del.title = "Remove relationship";
+        del.onclick = async () => {
+          if (!this.file) return;
+          const newRels = rels.filter((r) => r !== rel);
+          fm.relationships = newRels;
+          await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
+          await this.render();
+        };
       }
-      const addRow = b.createDiv();
-      addRow.style.cssText = "display:flex;gap:5px;margin-top:6px";
-      const inp = addRow.createEl("input");
-      inp.placeholder = "[[Character name]]";
-      inp.style.cssText = "flex:1;font-size:13px;padding:4px 7px;color:var(--text-normal);background:var(--background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md)";
-      const addBtn = addRow.createEl("button", { text: "Add" });
-      addBtn.onclick = async () => {
-        const val = inp.value.trim();
-        if (!val || !this.file) return;
-        const newRels = [...rels, val];
-        fm.relationships = newRels;
-        await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
-        inp.value = "";
-        await this.render();
+
+      const addBtn = b.createEl("button", { text: "+ Add relationship" });
+      addBtn.style.cssText = "font-size:12px;padding:4px 10px;margin-top:8px";
+      addBtn.onclick = () => {
+        if (!this.file) return;
+        new RelationshipPickerModal(this.app, this.campaignRoot(), this.file.basename, async (target, label, reciprocal) => {
+          const entry = formatRelationship(target, label);
+          const newRels = [...rels, entry];
+          fm.relationships = newRels;
+          if (this.file) await writeFrontmatterKey(this.app, this.file, "relationships", newRels);
+          if (reciprocal) {
+            const targetFile = resolveByName(this.app, target, this.campaignRoot());
+            if (targetFile) await addReciprocal(this.app, targetFile, this.file!.basename, inverseLabel(label));
+          }
+          await this.render();
+        }).open();
       };
-      inp.onkeydown = (e) => { if (e.key === "Enter") addBtn.click(); };
     });
+  }
+
+  private campaignRoot(): string {
+    // Derive the campaign folder from this file's path: .../campaigns/<id>/...
+    const path = this.file?.path ?? "";
+    const m = path.match(/^(.*\/campaigns\/[^/]+)\//);
+    return m ? m[1] : "";
   }
 
   private async renderInventory(parent: HTMLElement): Promise<void> {
