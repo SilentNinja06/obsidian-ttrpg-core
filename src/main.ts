@@ -19,6 +19,9 @@ import { NpcGenerator } from "./engine/NpcGenerator";
 import { NpcGeneratorModal } from "./modals/NpcGeneratorModal";
 import { BatchNpcModal } from "./modals/BatchNpcModal";
 import { ConditionReferenceModal } from "./modals/ConditionReferenceModal";
+import { RecapGenerator } from "./engine/RecapGenerator";
+import { RecapModal } from "./modals/RecapModal";
+import { AiProse } from "./engine/RecapProse";
 import { LootManager } from "./engine/LootManager";
 import { LootDistributionView, VIEW_TYPE_LOOT } from "./views/LootDistributionView";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./views/DashboardView";
@@ -133,6 +136,7 @@ export default class TTRPGPlugin extends Plugin {
     this.addCommand({ id: "generate-npc", name: "Generate NPC", callback: () => this.openNpcGenerator() });
     this.addCommand({ id: "generate-npc-batch", name: "Generate NPC batch", callback: () => this.openBatchGenerator() });
     this.addCommand({ id: "condition-reference", name: "Condition reference", callback: () => this.openConditionReference() });
+    this.addCommand({ id: "generate-recap", name: "Generate session recap (PDF)", callback: () => this.openRecap() });
     this.addCommand({ id: "open-loot", name: "Open loot distribution", callback: () => this.activateViewMain(VIEW_TYPE_LOOT) });
     this.addCommand({ id: "new-note", name: "New note", callback: () => this.openNewNoteModal() });
     this.addCommand({ id: "new-note-character", name: "New character", callback: () => this.openNewNoteModal("character") });
@@ -307,6 +311,14 @@ export default class TTRPGPlugin extends Plugin {
     ).open();
   }
 
+  openRecap(): void {
+    const generator = new RecapGenerator(this.app, this.campaignManager, this.settings);
+    const label = AiProse.isConfigured(this.settings)
+      ? `AI (${this.settings.aiProvider})`
+      : "Deterministic (offline)";
+    new RecapModal(this.app, generator, label).open();
+  }
+
   openConditionReference(highlight: string | null = null): void {
     const campaign = this.campaignManager.getActive();
     const schema = campaign ? this.systemLoader.get(campaign.system) : undefined;
@@ -415,5 +427,58 @@ class TTRPGSettingTab extends PluginSettingTab {
   }));
     new Setting(containerEl).setName("Open dashboard on startup").addToggle((t) => t.setValue(this.plugin.settings.sidebarDefaultOpen).onChange(async (v) => { this.plugin.settings.sidebarDefaultOpen = v; await this.plugin.saveSettings(); }));
     new Setting(containerEl).setName("Reload systems").addButton((b) => b.setButtonText("Reload").onClick(async () => { await this.plugin.systemLoader.loadAll(this.plugin.settings.systemsFolder); new Notice("Systems reloaded"); }));
+
+    // ── Session recap ─────────────────────────────────────────────────────────
+    containerEl.createEl("h3", { text: "Session recap" });
+    new Setting(containerEl)
+      .setName("Narrative prose engine")
+      .setDesc("Deterministic stitches your notes offline. AI uses an external model (configure below).")
+      .addDropdown((d) => {
+        d.addOption("deterministic", "Deterministic (offline)");
+        d.addOption("ai", "AI (online)");
+        d.setValue(this.plugin.settings.recapProseEngine);
+        d.onChange(async (v) => {
+          this.plugin.settings.recapProseEngine = v as "deterministic" | "ai";
+          await this.plugin.saveSettings();
+          this.display(); // re-render to update grey-out
+        });
+      });
+
+    const aiOn = this.plugin.settings.recapProseEngine === "ai";
+    const aiSection = containerEl.createDiv();
+    aiSection.style.cssText = `opacity:${aiOn ? "1" : "0.5"};pointer-events:${aiOn ? "auto" : "none"};border-left:2px solid var(--background-modifier-border);padding-left:14px;margin-left:2px`;
+
+    new Setting(aiSection)
+      .setName("AI provider")
+      .setDesc("Anthropic, OpenAI-compatible, or a custom endpoint")
+      .addDropdown((d) => {
+        d.addOption("anthropic", "Anthropic");
+        d.addOption("openai", "OpenAI-compatible");
+        d.addOption("custom", "Custom endpoint");
+        d.setValue(this.plugin.settings.aiProvider);
+        d.onChange(async (v) => { this.plugin.settings.aiProvider = v as any; await this.plugin.saveSettings(); this.display(); });
+      });
+
+    if (this.plugin.settings.aiProvider === "custom") {
+      new Setting(aiSection)
+        .setName("Endpoint URL")
+        .setDesc("Full chat-completions URL for your custom/local model")
+        .addText((t) => t.setValue(this.plugin.settings.aiEndpoint).onChange(async (v) => { this.plugin.settings.aiEndpoint = v.trim(); await this.plugin.saveSettings(); }));
+    }
+
+    new Setting(aiSection)
+      .setName("API key")
+      .setDesc("Stored locally in your vault settings")
+      .addText((t) => { t.inputEl.type = "password"; t.setValue(this.plugin.settings.aiApiKey).onChange(async (v) => { this.plugin.settings.aiApiKey = v.trim(); await this.plugin.saveSettings(); }); });
+
+    new Setting(aiSection)
+      .setName("Model")
+      .setDesc("e.g. claude-sonnet-4-6 or gpt-4o-mini")
+      .addText((t) => t.setValue(this.plugin.settings.aiModel).onChange(async (v) => { this.plugin.settings.aiModel = v.trim(); await this.plugin.saveSettings(); }));
+
+    if (aiOn && !AiProse.isConfigured(this.plugin.settings)) {
+      aiSection.createEl("p", { text: "⚠ AI isn't fully configured — recaps will use the offline stitcher until the key (and endpoint, if custom) are set." })
+        .style.cssText = "font-size:12px;color:var(--text-warning, #b5820b);margin-top:6px";
+    }
   }
 }

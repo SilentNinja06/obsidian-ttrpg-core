@@ -99,57 +99,79 @@ export class DashboardView extends ItemView {
 
     // Action buttons
     const actions = header.createDiv("ttrpg-dash-actions");
-    const newSessionBtn = actions.createEl("button", { text: "+ New session" });
+
+    // Helper to build a labeled group of buttons
+    const makeGroup = (label: string): HTMLElement => {
+      const group = actions.createDiv("ttrpg-action-group");
+      group.style.cssText = "margin-bottom:10px";
+      const lbl = group.createEl("div", { text: label });
+      lbl.style.cssText = "font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-tertiary);margin-bottom:5px";
+      const row = group.createDiv();
+      row.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
+      return row;
+    };
+
+    // ── At the table (live play) ──
+    const playRow = makeGroup("At the table");
+    const newSessionBtn = playRow.createEl("button", { text: "+ New session" });
     newSessionBtn.onclick = () => this.openNewNote("session");
 
-    const combatBtn = actions.createEl("button", { text: "Combat tracker" });
+    const combatBtn = playRow.createEl("button", { text: "⚔️ Combat tracker" });
     combatBtn.onclick = () => this.openCombat();
 
-    const searchBtn = actions.createEl("button", { text: "🔍 Search" });
-    searchBtn.onclick = () => {
-      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
-      if (plugin?.openQuickSearch) plugin.openQuickSearch();
-    };
-
-    const prepBtn = actions.createEl("button", { text: "📋 Session prep" });
-    prepBtn.onclick = () => {
-      this.app.workspace.getRightLeaf(false)?.setViewState({ type: "ttrpg-prep", active: true });
-    };
-
-    const mapBtn = actions.createEl("button", { text: "🔗 Relationship map" });
-    mapBtn.onclick = async () => {
-      const leaf = this.app.workspace.getLeaf("tab");
-      await leaf.setViewState({ type: "ttrpg-relmap", active: true });
-      this.app.workspace.revealLeaf(leaf);
-    };
-
-    const timelineBtn = actions.createEl("button", { text: "🕐 Timeline" });
-    timelineBtn.onclick = async () => {
-      const leaf = this.app.workspace.getLeaf("tab");
-      await leaf.setViewState({ type: "ttrpg-timeline", active: true });
-      this.app.workspace.revealLeaf(leaf);
-    };
-
-    const npcBtn = actions.createEl("button", { text: "🎲 Generate NPC" });
+    const npcBtn = playRow.createEl("button", { text: "🎲 Generate NPC" });
     npcBtn.onclick = () => {
       const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
       if (plugin?.openNpcGenerator) plugin.openNpcGenerator();
     };
 
-    const batchBtn = actions.createEl("button", { text: "🎲 NPC batch" });
+    const batchBtn = playRow.createEl("button", { text: "🎲 NPC batch" });
     batchBtn.onclick = () => {
       const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
       if (plugin?.openBatchGenerator) plugin.openBatchGenerator();
     };
 
-    const lootBtn = actions.createEl("button", { text: "💰 Distribute loot" });
+    const lootBtn = playRow.createEl("button", { text: "💰 Distribute loot" });
     lootBtn.onclick = async () => {
       const leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: "ttrpg-loot", active: true });
       this.app.workspace.revealLeaf(leaf);
     };
 
-    const popoutBtn = actions.createEl("button", { text: "⤢ Pop out" });
+    // ── Prep & reference (between sessions) ──
+    const prepRow = makeGroup("Prep & reference");
+    const prepBtn = prepRow.createEl("button", { text: "📋 Session prep" });
+    prepBtn.onclick = () => {
+      this.app.workspace.getRightLeaf(false)?.setViewState({ type: "ttrpg-prep", active: true });
+    };
+
+    const searchBtn = prepRow.createEl("button", { text: "🔍 Search" });
+    searchBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openQuickSearch) plugin.openQuickSearch();
+    };
+
+    const mapBtn = prepRow.createEl("button", { text: "🔗 Relationship map" });
+    mapBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-relmap", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
+    const timelineBtn = prepRow.createEl("button", { text: "🕐 Timeline" });
+    timelineBtn.onclick = async () => {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: "ttrpg-timeline", active: true });
+      this.app.workspace.revealLeaf(leaf);
+    };
+
+    const recapBtn = prepRow.createEl("button", { text: "📄 Session recap" });
+    recapBtn.onclick = () => {
+      const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+      if (plugin?.openRecap) plugin.openRecap();
+    };
+
+    const popoutBtn = prepRow.createEl("button", { text: "⤢ Pop out" });
     popoutBtn.onclick = () => {
       this.app.workspace.moveLeafToPopout(this.leaf);
     };

@@ -103,6 +103,11 @@ export interface TTRPGSettings {
   systemsFolder: string;
   activeCampaign: string;
   sidebarDefaultOpen: boolean;
+  recapProseEngine: "deterministic" | "ai";
+  aiProvider: "anthropic" | "openai" | "custom";
+  aiEndpoint: string;
+  aiApiKey: string;
+  aiModel: string;
 }
 
 export const DEFAULT_SETTINGS: TTRPGSettings = {
@@ -110,4 +115,9 @@ export const DEFAULT_SETTINGS: TTRPGSettings = {
   systemsFolder: "ttrpg/systems",
   activeCampaign: "",
   sidebarDefaultOpen: true,
+  recapProseEngine: "deterministic",
+  aiProvider: "anthropic",
+  aiEndpoint: "",
+  aiApiKey: "",
+  aiModel: "claude-sonnet-4-6",
 };
