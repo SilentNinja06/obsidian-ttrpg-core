@@ -108,6 +108,8 @@ export interface TTRPGSettings {
   aiEndpoint: string;
   aiApiKey: string;
   aiModel: string;
+  dungeonReopenLast: boolean;
+  dungeonLastMapPath: string;
 }
 
 export const DEFAULT_SETTINGS: TTRPGSettings = {
@@ -120,4 +122,6 @@ export const DEFAULT_SETTINGS: TTRPGSettings = {
   aiEndpoint: "",
   aiApiKey: "",
   aiModel: "claude-sonnet-4-6",
+  dungeonReopenLast: true,
+  dungeonLastMapPath: "",
 };

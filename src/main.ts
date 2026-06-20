@@ -492,6 +492,13 @@ class TTRPGSettingTab extends PluginSettingTab {
         new Notice(n > 0 ? `Installed ${n} pack${n === 1 ? "" : "s"}.` : "Packs already present — nothing to add.");
       }));
 
+    // ── Dungeon sketcher ──────────────────────────────────────────────────────
+    containerEl.createEl("h3", { text: "Dungeon sketcher" });
+    new Setting(containerEl)
+      .setName("Reopen last map")
+      .setDesc("When you open the dungeon sketcher, automatically reload the map you were last editing. Turn off to always start with an empty sketcher.")
+      .addToggle((t) => t.setValue(this.plugin.settings.dungeonReopenLast).onChange(async (v) => { this.plugin.settings.dungeonReopenLast = v; await this.plugin.saveSettings(); }));
+
     // ── Session recap ─────────────────────────────────────────────────────────
     containerEl.createEl("h3", { text: "Session recap" });
     new Setting(containerEl)

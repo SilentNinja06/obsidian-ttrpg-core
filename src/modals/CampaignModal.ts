@@ -2,6 +2,7 @@ import { App, Modal, Setting, Notice } from "obsidian";
 import type { CampaignManager } from "../engine/CampaignManager";
 import type { SystemLoader } from "../engine/SystemLoader";
 import type { CampaignConfig } from "../types";
+import { confirmAction } from "./InputModal";
 
 /**
  * Switcher modal: lists all campaigns, lets you pick one, or create a new one.
@@ -12,6 +13,7 @@ export class CampaignSwitcherModal extends Modal {
   private campaignsFolder: string;
   private onSwitch: (id: string) => void;
   private onCreate: () => void;
+  private onChanged?: () => void;
 
   constructor(
     app: App,
@@ -19,7 +21,8 @@ export class CampaignSwitcherModal extends Modal {
     systemLoader: SystemLoader,
     campaignsFolder: string,
     onSwitch: (id: string) => void,
-    onCreate: () => void
+    onCreate: () => void,
+    onChanged?: () => void
   ) {
     super(app);
     this.campaignManager = campaignManager;
@@ -27,6 +30,7 @@ export class CampaignSwitcherModal extends Modal {
     this.campaignsFolder = campaignsFolder;
     this.onSwitch = onSwitch;
     this.onCreate = onCreate;
+    this.onChanged = onChanged;
   }
 
   onOpen(): void {
@@ -45,22 +49,46 @@ export class CampaignSwitcherModal extends Modal {
     list.style.cssText = "display:flex;flex-direction:column;gap:6px;margin-bottom:1rem";
 
     for (const [id, config] of campaigns) {
-      const row = list.createEl("button");
       const isActive = id === activeId;
-      row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--radius-m);cursor:pointer;text-align:left;font-family:var(--font-interface);border:1px solid ${isActive ? "var(--interactive-accent)" : "var(--background-modifier-border)"};background:${isActive ? "var(--background-modifier-hover)" : "var(--background-primary)"}`;
+      const row = list.createDiv();
+      row.style.cssText = `display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-m);font-family:var(--font-interface);border:1px solid ${isActive ? "var(--interactive-accent)" : "var(--background-modifier-border)"};background:${isActive ? "var(--background-modifier-hover)" : "var(--background-primary)"}`;
 
-      const left = row.createDiv();
-      left.createDiv({ text: config.name }).style.cssText = "font-weight:600;font-size:14px;color:var(--text-normal)";
+      // Clickable switch area
+      const switchArea = row.createDiv();
+      switchArea.style.cssText = "flex:1;display:flex;align-items:center;justify-content:space-between;cursor:pointer;min-width:0";
+      const left = switchArea.createDiv();
+      left.style.cssText = "min-width:0";
+      left.createDiv({ text: config.name }).style.cssText = "font-weight:600;font-size:14px;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis";
       const sysName = this.systemLoader.get(config.system)?.name ?? config.system;
       left.createDiv({ text: `${sysName} · ${config.status}` }).style.cssText = "font-size:12px;color:var(--text-muted);margin-top:2px";
-
       if (isActive) {
-        row.createSpan({ text: "● active" }).style.cssText = "font-size:11px;color:var(--interactive-accent);font-weight:600";
+        switchArea.createSpan({ text: "● active" }).style.cssText = "font-size:11px;color:var(--interactive-accent);font-weight:600;white-space:nowrap;margin-left:8px";
       }
+      switchArea.onclick = () => { this.onSwitch(id); this.close(); };
 
-      row.onclick = () => {
-        this.onSwitch(id);
-        this.close();
+      // Delete button (doesn't trigger switch)
+      const delBtn = row.createEl("button", { text: "🗑" });
+      delBtn.title = `Delete "${config.name}"`;
+      delBtn.style.cssText = "flex:0 0 auto;font-size:14px;padding:4px 8px;cursor:pointer;background:none;border:none;opacity:0.6";
+      delBtn.onmouseenter = () => { delBtn.style.opacity = "1"; };
+      delBtn.onmouseleave = () => { delBtn.style.opacity = "0.6"; };
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const ok = await confirmAction(
+          this.app,
+          "Delete campaign",
+          `Delete "${config.name}" and everything in it — characters, sessions, lore, combat logs, inventory? This moves the whole campaign folder to trash and can't be undone from here.`,
+          "Delete campaign",
+          true
+        );
+        if (!ok) return;
+        await this.campaignManager.deleteCampaign(this.campaignsFolder, id);
+        // Persist any active-campaign change and refresh the list in place
+        const plugin = (this.app as any).plugins?.plugins?.["ttrpg-core"];
+        if (plugin) { plugin.settings.activeCampaign = this.campaignManager.getActiveId(); await plugin.saveSettings?.(); }
+        new Notice(`Deleted "${config.name}"`);
+        this.onChanged?.();
+        this.onOpen(); // re-render the modal list
       };
     }
 

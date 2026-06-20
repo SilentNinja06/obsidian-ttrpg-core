@@ -49,11 +49,16 @@ export class DashboardView extends ItemView {
     await this.campaignManager.loadAll(this.campaignsFolder);
     const activeId = this.campaignManager.getActiveId();
     if (!activeId) {
-      // Try to set from the plugin settings directly
+      // Try to set from the plugin settings directly — but only if that
+      // campaign still exists on disk (it may have been deleted).
       const plugin = (this.app as any).plugins?.plugins?.['ttrpg-core'];
-      if (plugin?.settings?.activeCampaign) {
-        await this.campaignManager.loadAll(this.campaignsFolder);
-        this.campaignManager.setActive(plugin.settings.activeCampaign);
+      const wanted = plugin?.settings?.activeCampaign;
+      if (wanted && this.campaignManager.getAll().has(wanted)) {
+        this.campaignManager.setActive(wanted);
+      } else if (wanted && plugin) {
+        // Stale setting — clear it so we don't keep pointing at a dead campaign
+        plugin.settings.activeCampaign = this.campaignManager.getActiveId();
+        await plugin.saveSettings?.();
       }
     }
     await this.render();
@@ -306,14 +311,18 @@ export class DashboardView extends ItemView {
     await this.render();
   }
 
-  openSwitcher(): void {
+  async openSwitcher(): Promise<void> {
+    // Re-scan disk so deleted/added campaigns are reflected (the in-memory list
+    // can go stale if folders are changed outside the plugin).
+    await this.campaignManager.loadAll(this.campaignsFolder);
     new CampaignSwitcherModal(
       this.app,
       this.campaignManager,
       this.systemLoader,
       this.campaignsFolder,
       (id) => this.switchTo(id),
-      () => this.openCreate()
+      () => this.openCreate(),
+      () => this.render()
     ).open();
   }
 

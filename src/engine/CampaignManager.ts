@@ -26,6 +26,13 @@ export class CampaignManager {
         }
       }
     }
+
+    // If the previously-active campaign no longer exists on disk, drop the
+    // stale pointer (and fall back to another campaign if one remains).
+    if (this.activeCampaignId && !this.campaigns.has(this.activeCampaignId)) {
+      const first = this.campaigns.keys().next();
+      this.activeCampaignId = first.done ? "" : first.value;
+    }
   }
 
   private async loadCampaign(id: string, file: TFile): Promise<void> {
@@ -89,5 +96,28 @@ export class CampaignManager {
     );
 
     this.campaigns.set(id, config);
+  }
+
+  /**
+   * Delete a campaign and its entire folder tree from the vault.
+   * Clears the active pointer if it was the active one. Returns true on success.
+   */
+  async deleteCampaign(campaignsFolder: string, id: string): Promise<boolean> {
+    const folderPath = `${campaignsFolder}/${id}`;
+    const folder = this.app.vault.getFolderByPath(folderPath);
+    if (!folder) {
+      // Already gone from disk; just drop it from memory
+      this.campaigns.delete(id);
+      if (this.activeCampaignId === id) this.activeCampaignId = "";
+      return false;
+    }
+    // Trash the whole folder (respects the user's Obsidian trash preference)
+    await this.app.vault.trash(folder, true);
+    this.campaigns.delete(id);
+    if (this.activeCampaignId === id) {
+      const first = this.campaigns.keys().next();
+      this.activeCampaignId = first.done ? "" : first.value;
+    }
+    return true;
   }
 }
