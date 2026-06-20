@@ -68,6 +68,21 @@ export async function writeFrontmatterKeys(
  * Read a section of the markdown body by heading name.
  * Returns the content between this heading and the next same-level heading.
  */
+/**
+ * Section bodies from the note templates contain an italic hint line, e.g.
+ * `_What it looks like and what it does._`, as guidance. When such a hint is the
+ * only content, it should be treated as empty so editable fields show a real
+ * placeholder instead of forcing the user to delete the hint text.
+ */
+export function stripHintPlaceholder(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  const lines = trimmed.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  // If every remaining line is an italic hint (_..._), treat the section as empty.
+  const allHints = lines.every((l) => /^_.*_$/.test(l));
+  return allHints ? "" : trimmed;
+}
+
 export function readSection(body: string, heading: string): string {
   const lines = body.split("\n");
   let inSection = false;

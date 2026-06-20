@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ttrpg-core",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "description": "TTRPG campaign manager for Obsidian \u2014 core plugin",
   "main": "main.js",
   "scripts": {

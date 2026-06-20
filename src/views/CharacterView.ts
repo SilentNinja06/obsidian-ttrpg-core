@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import type { SystemLoader } from "../engine/SystemLoader";
 import type { LootManager } from "../engine/LootManager";
-import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection } from "../utils/fileIO";
+import { readNote, writeFrontmatterKey, writeFrontmatterKeys, writeNoteSection, readSection, stripHintPlaceholder } from "../utils/fileIO";
 import { InputModal, promptText } from "../modals/InputModal";
 import { ConditionPickerModal } from "../modals/ConditionPickerModal";
 import { RelationshipPickerModal } from "../modals/RelationshipPickerModal";
@@ -227,7 +227,7 @@ export class CharacterView extends ItemView {
     }
 
     // Skills & abilities
-    const skillsContent = readSection(body, "Skills & abilities");
+    const skillsContent = stripHintPlaceholder(readSection(body, "Skills & abilities"));
     this.editableSection(left, "Skills & abilities", skillsContent, "Skills & abilities");
 
     // Combat log (read-only — populated by the combat tracker)
@@ -275,7 +275,7 @@ export class CharacterView extends ItemView {
       }
 
       // Freeform notes
-      const notesContent = readSection(body, "Notes");
+      const notesContent = stripHintPlaceholder(readSection(body, "Notes"));
       b.createDiv({ text: "Notes" }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px;margin-top:6px";
       const ta = b.createEl("textarea");
       ta.value = notesContent;

@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
-import { readNote, writeNoteSection, writeFrontmatterKey, readSection } from "../utils/fileIO";
+import { readNote, writeNoteSection, writeFrontmatterKey, readSection, stripHintPlaceholder } from "../utils/fileIO";
 import { promptText } from "../modals/InputModal";
 
 export const VIEW_TYPE_SESSION = "ttrpg-session";
@@ -100,7 +100,7 @@ export class SessionNoteView extends ItemView {
 
     // XP — full width
     const xpBlock = this.captureBlockEl(grid, "XP & milestones", true);
-    const xpContent = readSection(body, "XP & milestones");
+    const xpContent = stripHintPlaceholder(readSection(body, "XP & milestones"));
     const xpTa = xpBlock.createEl("textarea");
     xpTa.value = xpContent;
     xpTa.placeholder = "XP gained, milestones reached…";
@@ -210,7 +210,7 @@ export class SessionNoteView extends ItemView {
       }
 
       b.createDiv({ text: "XP & milestones" }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px";
-      const xpContent = readSection(body, "XP & milestones");
+      const xpContent = stripHintPlaceholder(readSection(body, "XP & milestones"));
       const ta = b.createEl("textarea");
       ta.value = xpContent;
       ta.placeholder = "XP gained, running total…";
@@ -223,7 +223,7 @@ export class SessionNoteView extends ItemView {
 
   private writeupSection(parent: HTMLElement, displayTitle: string, placeholder: string, body: string, sectionName: string): void {
     this.section(parent, displayTitle, (b) => {
-      const content = readSection(body, sectionName);
+      const content = stripHintPlaceholder(readSection(body, sectionName));
       const ta = b.createEl("textarea");
       ta.value = content;
       ta.placeholder = placeholder;

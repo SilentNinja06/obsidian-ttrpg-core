@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import type { LootManager } from "../engine/LootManager";
 import type { SystemLoader } from "../engine/SystemLoader";
-import { readNote, writeFrontmatterKey, writeNoteSection, readSection } from "../utils/fileIO";
+import { readNote, writeFrontmatterKey, writeNoteSection, readSection, stripHintPlaceholder } from "../utils/fileIO";
 import { collectBacklinks } from "../utils/queries";
 import { RelationshipPickerModal } from "../modals/RelationshipPickerModal";
 import { parseRelationship, formatRelationship, resolveByName, addReciprocal, inverseLabel } from "../utils/relationships";
@@ -171,7 +171,7 @@ export class LoreView extends ItemView {
 
       // Freeform notes
       b.createDiv({ text: "Notes" }).style.cssText = "font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px;margin-top:6px";
-      const notesContent = readSection(body, "Notes");
+      const notesContent = stripHintPlaceholder(readSection(body, "Notes"));
       const ta = b.createEl("textarea");
       ta.value = notesContent;
       ta.placeholder = "DM notes, atmosphere, observations…";
@@ -183,7 +183,7 @@ export class LoreView extends ItemView {
 
     // Overview prose (left)
     this.section(left, "Overview", (b) => {
-      const content = readSection(body, "Overview");
+      const content = stripHintPlaceholder(readSection(body, "Overview"));
       const ta = b.createEl("textarea");
       ta.value = content;
       ta.placeholder = "What is this and why does it matter…";
